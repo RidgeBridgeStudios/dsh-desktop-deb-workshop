@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Standard environment path
+export PATH="/usr/local/bin:/usr/bin:/bin:${HOME:-/root}/.local/bin:${PATH:-}"
+
+# Locate DSH entry script
+DSH_ENTRY="/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
+if [ ! -f "$DSH_ENTRY" ]; then
+    if [ -f "/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js" ]; then
+        DSH_ENTRY="/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
+    elif command -v dsh >/dev/null 2>&1; then
+        RESOLVED_DSH="$(readlink -f "$(command -v dsh)" 2>/dev/null || true)"
+        if [ -n "$RESOLVED_DSH" ] && [ -f "$RESOLVED_DSH" ]; then
+            DSH_ENTRY="$RESOLVED_DSH"
+        fi
+    fi
+fi
+
+if [ ! -f "$DSH_ENTRY" ]; then
+    echo "Error: DeepSeek Harness entry script not found at $DSH_ENTRY" >&2
+    echo "Please ensure @deepseek-ai/dsh is installed globally: sudo npm install -g @deepseek-ai/dsh@latest" >&2
+    exit 1
+fi
+
+# Ensure default profile directory and package.json exist before starting
+PROFILE_DIR="${HOME:-/root}/.dsh/profiles/default"
+if [ ! -d "$PROFILE_DIR" ]; then
+    mkdir -p "$PROFILE_DIR"
+fi
+if [ ! -f "$PROFILE_DIR/package.json" ]; then
+    cat << 'EOF' > "$PROFILE_DIR/package.json"
+{
+  "name": "dsh-profile-default",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app"
+      ],
+      "patchReload": "live"
+    }
+  }
+}
+EOF
+    if command -v pnpm >/dev/null 2>&1; then
+        (cd "$PROFILE_DIR" && pnpm install --silent) || true
+    fi
+fi
+
+# Fallback node binary if /usr/bin/node does not exist
+NODE_BIN="/usr/bin/node"
+if [ ! -x "$NODE_BIN" ]; then
+    NODE_BIN="$(command -v node 2>/dev/null || echo /usr/bin/node)"
+fi
+
+# Critical execution line: --expose-internals passed directly to node binary
+exec "$NODE_BIN" --expose-internals "$DSH_ENTRY" --profile default

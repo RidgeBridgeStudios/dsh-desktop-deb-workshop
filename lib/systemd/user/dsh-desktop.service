@@ -1,0 +1,15 @@
+[Unit]
+Description=DeepSeek Harness Daemon (DSH Desktop)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dsh-desktop-daemon
+Restart=on-failure
+RestartSec=5
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.local/bin
+StandardOutput=append:%h/.local/share/dsh-desktop/dsh.log
+StandardError=append:%h/.local/share/dsh-desktop/dsh.log
+
+[Install]
+WantedBy=default.target

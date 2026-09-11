@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -e
+
+case "$1" in
+    remove|deconfigure)
+        TARGET_USER="${SUDO_USER:-}"
+        if [ -z "$TARGET_USER" ] || [ "$TARGET_USER" = "root" ]; then
+            TARGET_USER=$(awk -F: '$3 >= 1000 && $3 < 65534 && $6 ~ /^\/home/ {print $1; exit}' /etc/passwd || echo "")
+        fi
+
+        if [ -n "$TARGET_USER" ] && id -u "$TARGET_USER" >/dev/null 2>&1; then
+            USER_UID=$(id -u "$TARGET_USER")
+            USER_RUNDIR="/run/user/$USER_UID"
+            if [ -d "$USER_RUNDIR" ] && command -v systemctl >/dev/null 2>&1; then
+                sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user stop dsh-desktop.service 2>/dev/null || true
+                sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user disable dsh-desktop.service 2>/dev/null || true
+            fi
+        fi
+        ;;
+esac
+
+exit 0

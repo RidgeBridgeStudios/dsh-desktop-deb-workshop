@@ -1,0 +1,6 @@
+# Build and staging artifacts
+build/
+*.log
+
+# System files
+.DS_Store
