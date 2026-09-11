@@ -3,7 +3,7 @@ Version: 1.0.0
 Section: utils
 Priority: optional
 Architecture: amd64
-Depends: nodejs (>= 20.12), npm, pnpm, curl, ca-certificates, jq, procps, iproute2
+Depends: nodejs (>= 20.12), npm, curl, ca-certificates, jq, procps, iproute2
 Recommends: electron | brave-browser | google-chrome-stable | chromium-browser | chromium
 Maintainer: businessgaberino-commits <business.gaberino@gmail.com>
 Description: Native desktop launcher for DeepSeek Harness

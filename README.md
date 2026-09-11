@@ -19,7 +19,7 @@ The upstream `dataelement/dsh-desktop` repository does not ship official Linux b
 2. **The `--expose-internals` Flag**:
    The built-in `@deepseek-ai/cordis-plugin-hmr` requires Node to be launched with `--expose-internals`. Node.js **explicitly rejects** `--expose-internals` when set inside `NODE_OPTIONS` for security reasons. `dsh-desktop` and its daemon pass `--expose-internals` directly as a CLI argument to the `node` executable before the script path, completely avoiding startup crashes.
 3. **Missing `pnpm` Runtime**:
-   The harness profile loader dynamically shells out to `pnpm`. The package declares `pnpm` as a package dependency and verifies its presence at runtime.
+   The harness profile loader dynamically shells out to `pnpm`. The installer and package verify its presence at runtime and install it via `npm` (since `pnpm` is an npm-distributed binary rather than a distro APT package).
 4. **Native `sharp` Binaries**:
    Running `npm install` directly inside the `@deepseek-ai/dsh` directory triggers HTTP 404 errors due to the unreleased private `@deepseek-ai/dsh-experimental-code-runtime-python` dependency. Instead, `dsh-desktop` installs `@img/sharp-linux-x64` globally and links the prebuilt binaries directly into the DSH node modules tree.
 5. **Profile Initialization Race Condition (`ERR_PNPM_PACKAGE_JSON_EXISTS`)**:
