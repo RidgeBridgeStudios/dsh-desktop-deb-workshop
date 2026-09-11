@@ -1,0 +1,10 @@
+dsh-desktop (1.0.0) stable; urgency=medium
+
+  * Initial release of dsh-desktop for Ubuntu and Zorin OS.
+  * Standalone application window wrapper for @deepseek-ai/dsh.
+  * Direct --expose-internals inline node flag execution to bypass NODE_OPTIONS restriction.
+  * Automated sharp-linux-x64 native binding linking.
+  * Safe default profile initialization with package.json race prevention.
+  * Systemd user service dsh-desktop.service and XDG desktop entry.
+
+ -- businessgaberino-commits <business.gaberino@gmail.com>  Fri, 11 Sep 2026 20:00:00 +0200

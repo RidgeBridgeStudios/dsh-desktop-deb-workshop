@@ -1,0 +1,7 @@
+{
+  "name": "dsh-desktop-app",
+  "version": "1.0.0",
+  "description": "Sandboxed Electron desktop wrapper for DeepSeek Harness",
+  "main": "main.js",
+  "private": true
+}

@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -e
+
+case "$1" in
+    configure)
+        # Determine the invoking non-root user
+        TARGET_USER="${SUDO_USER:-}"
+        if [ -z "$TARGET_USER" ] || [ "$TARGET_USER" = "root" ]; then
+            # If run directly as root, identify the first non-root interactive user (UID >= 1000)
+            TARGET_USER=$(awk -F: '$3 >= 1000 && $3 < 65534 && $6 ~ /^\/home/ {print $1; exit}' /etc/passwd || echo "")
+        fi
+
+        if [ -n "$TARGET_USER" ] && id -u "$TARGET_USER" >/dev/null 2>&1; then
+            USER_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+            USER_UID=$(id -u "$TARGET_USER")
+            USER_GID=$(id -g "$TARGET_USER")
+
+            # 1. Create ~/.dsh/profiles/default/ if missing
+            DEFAULT_PROFILE_DIR="$USER_HOME/.dsh/profiles/default"
+            mkdir -p "$DEFAULT_PROFILE_DIR"
+            mkdir -p "$USER_HOME/.local/share/dsh-desktop"
+
+            # 2. Write a minimal valid package.json before running pnpm
+            PACKAGE_JSON="$DEFAULT_PROFILE_DIR/package.json"
+            if [ ! -f "$PACKAGE_JSON" ]; then
+                cat << 'EOF' > "$PACKAGE_JSON"
+{
+  "name": "dsh-profile-default",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app"
+      ],
+      "patchReload": "live"
+    }
+  }
+}
+EOF
+                chown "$USER_UID:$USER_GID" "$PACKAGE_JSON"
+            fi
+            chown -R "$USER_UID:$USER_GID" "$USER_HOME/.dsh"
+            chown -R "$USER_UID:$USER_GID" "$USER_HOME/.local/share/dsh-desktop"
+
+            # 3. Run (cd ~/.dsh/profiles/default && pnpm install --silent) as the invoking user
+            if command -v pnpm >/dev/null 2>&1; then
+                su - "$TARGET_USER" -c "cd \"$DEFAULT_PROFILE_DIR\" && pnpm install --silent" 2>/dev/null || true
+            fi
+
+            # 5. Enable user lingering for the invoking user
+            if command -v loginctl >/dev/null 2>&1; then
+                loginctl enable-linger "$TARGET_USER" 2>/dev/null || true
+            fi
+
+            # 6. Enable and (re)start the user service
+            USER_RUNDIR="/run/user/$USER_UID"
+            if [ -d "$USER_RUNDIR" ] && command -v systemctl >/dev/null 2>&1; then
+                sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user daemon-reload 2>/dev/null || true
+                sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user enable --now dsh-desktop.service 2>/dev/null || true
+            fi
+        fi
+
+        # 4. Link prebuilt sharp binaries
+        # Check standard global npm locations
+        GLOBAL_NM=/usr/local/lib/node_modules
+        if [ ! -d "$GLOBAL_NM/@deepseek-ai/dsh" ] && [ -d "/usr/lib/node_modules/@deepseek-ai/dsh" ]; then
+            GLOBAL_NM=/usr/lib/node_modules
+        fi
+        DSH_NM="$GLOBAL_NM/@deepseek-ai/dsh/node_modules"
+
+        if [ -d "$GLOBAL_NM/@deepseek-ai/dsh" ]; then
+            mkdir -p "$DSH_NM/@img"
+            [ -d "$GLOBAL_NM/sharp" ] && cp -a "$GLOBAL_NM/sharp" "$DSH_NM/" 2>/dev/null || true
+            [ -d "$GLOBAL_NM/@img/sharp-linux-x64" ] && cp -a "$GLOBAL_NM/@img/sharp-linux-x64" "$DSH_NM/@img/" 2>/dev/null || true
+        fi
+
+        # 7. Update the desktop and icon databases
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database /usr/share/applications/ || true
+        fi
+        if command -v update-icon-caches >/dev/null 2>&1; then
+            update-icon-caches /usr/share/icons/hicolor 2>/dev/null || true
+        elif command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+        fi
+        ;;
+esac
+
+exit 0

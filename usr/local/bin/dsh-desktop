@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ensure standard PATH
+export PATH="/usr/local/bin:/usr/bin:/bin:${HOME:-/root}/.local/bin:${PATH:-}"
+
+LOG_DIR="${HOME}/.local/share/dsh-desktop"
+LOG_FILE="${LOG_DIR}/dsh.log"
+mkdir -p "$LOG_DIR"
+
+# 1. Verify node and pnpm exist; print actionable errors if missing
+if ! command -v node >/dev/null 2>&1; then
+    cat << 'EOF' >&2
+Error: 'node' binary was not found in PATH.
+DeepSeek Harness requires Node.js >= 20.12 (Node 22 LTS recommended).
+Install Node.js 22 LTS via NodeSource:
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    sudo apt install -y nodejs
+EOF
+    exit 1
+fi
+
+NODE_VER=$(node -v 2>/dev/null | sed 's/^v//')
+NODE_MAJOR=$(echo "$NODE_VER" | cut -d. -f1)
+NODE_MINOR=$(echo "$NODE_VER" | cut -d. -f2)
+
+if [ "$NODE_MAJOR" -lt 20 ] || { [ "$NODE_MAJOR" -eq 20 ] && [ "$NODE_MINOR" -lt 12 ]; }; then
+    cat << EOF >&2
+Error: Node.js version $NODE_VER detected.
+DeepSeek Harness requires Node.js >= 20.12 (util.parseEnv is required).
+Upgrade to Node.js 22 LTS:
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    sudo apt install -y nodejs
+EOF
+    exit 1
+fi
+
+if ! command -v pnpm >/dev/null 2>&1; then
+    cat << 'EOF' >&2
+Error: 'pnpm' binary was not found in PATH.
+DeepSeek Harness requires pnpm for profile and plugin management.
+Install pnpm globally:
+    sudo npm install -g pnpm
+EOF
+    exit 1
+fi
+
+# 2. Locate the DSH entry script
+DSH_ENTRY="/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
+if [ ! -f "$DSH_ENTRY" ]; then
+    if [ -f "/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js" ]; then
+        DSH_ENTRY="/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
+    elif command -v dsh >/dev/null 2>&1; then
+        RESOLVED_DSH="$(readlink -f "$(command -v dsh)" 2>/dev/null || true)"
+        if [ -n "$RESOLVED_DSH" ] && [ -f "$RESOLVED_DSH" ]; then
+            DSH_ENTRY="$RESOLVED_DSH"
+        fi
+    fi
+fi
+
+if [ ! -f "$DSH_ENTRY" ]; then
+    cat << 'EOF' >&2
+Error: DeepSeek Harness entry script was not found.
+Please install @deepseek-ai/dsh globally:
+    sudo npm install -g @deepseek-ai/dsh@latest
+EOF
+    exit 1
+fi
+
+# Ensure default profile directory and package.json exist before starting
+PROFILE_DIR="${HOME}/.dsh/profiles/default"
+if [ ! -d "$PROFILE_DIR" ]; then
+    mkdir -p "$PROFILE_DIR"
+fi
+if [ ! -f "$PROFILE_DIR/package.json" ]; then
+    cat << 'EOF' > "$PROFILE_DIR/package.json"
+{
+  "name": "dsh-profile-default",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app"
+      ],
+      "patchReload": "live"
+    }
+  }
+}
+EOF
+    (cd "$PROFILE_DIR" && pnpm install --silent) || true
+fi
+
+# Support direct foreground execution if requested via argument
+if [ "${1:-}" = "--daemon" ] || [ "${1:-}" = "--foreground" ]; then
+    # 4. Critical requirement: pass --expose-internals directly to node
+    exec node --expose-internals "$DSH_ENTRY" --profile default
+fi
+
+# 3. Start systemd user service dsh-desktop.service if not active, or fallback to spawning daemon
+SERVICE_NAME="dsh-desktop.service"
+DAEMON_STARTED_BY_SYSTEMD=0
+
+if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    DAEMON_STARTED_BY_SYSTEMD=1
+elif command -v systemctl >/dev/null 2>&1 && systemctl --user start "$SERVICE_NAME" 2>/dev/null; then
+    DAEMON_STARTED_BY_SYSTEMD=1
+fi
+
+if [ "$DAEMON_STARTED_BY_SYSTEMD" -eq 0 ]; then
+    # Fallback to spawning background daemon process
+    EXISTING_PID=$(pgrep -f '@deepseek-ai/dsh|node.*dsh' 2>/dev/null | head -n 1 || true)
+    if [ -z "$EXISTING_PID" ]; then
+        if [ -x "/usr/local/bin/dsh-desktop-daemon" ]; then
+            nohup /usr/local/bin/dsh-desktop-daemon >> "$LOG_FILE" 2>&1 &
+        else
+            # 4. Critical requirement: pass --expose-internals directly to node
+            nohup node --expose-internals "$DSH_ENTRY" --profile default >> "$LOG_FILE" 2>&1 &
+        fi
+    fi
+fi
+
+# 5. Wait up to 15 seconds for harness to bind loopback port.
+# Strictly detect port using ss -tulpn / ss -tlpn for sockets owned by processes matching
+# '@deepseek-ai/dsh' or 'node.*dsh'. Explicitly exclude port 631 (CUPS).
+find_dsh_port() {
+    local ss_out
+    ss_out=$(ss -tlpn 2>/dev/null || ss -tulpn 2>/dev/null || true)
+    if [ -z "$ss_out" ]; then
+        return 1
+    fi
+
+    while IFS= read -r line; do
+        local pid=""
+        if [[ "$line" =~ pid=([0-9]+) ]]; then
+            pid="${BASH_REMATCH[1]}"
+        fi
+
+        if [ -n "$pid" ]; then
+            local cmdline=""
+            if [ -f "/proc/$pid/cmdline" ]; then
+                cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)
+            else
+                cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
+            fi
+
+            if [[ "$cmdline" =~ @deepseek-ai/dsh ]] || [[ "$cmdline" =~ node.*dsh ]]; then
+                # Extract port from local address column
+                local port=""
+                if [[ "$line" =~ :([0-9]+)[[:space:]] ]]; then
+                    port="${BASH_REMATCH[1]}"
+                fi
+
+                # Explicitly exclude port 631 (CUPS)
+                if [ -n "$port" ] && [ "$port" != "631" ]; then
+                    echo "$port"
+                    return 0
+                fi
+            fi
+        fi
+    done <<< "$ss_out"
+
+    return 1
+}
+
+# 6. Fallback: parse bound URL from ~/.local/share/dsh-desktop/dsh.log
+find_url_from_log() {
+    if [ -f "$LOG_FILE" ]; then
+        local url
+        url=$(grep -oE 'https?://(127\.0\.0\.1|localhost):[0-9]+[^[:space:]]*' "$LOG_FILE" 2>/dev/null | tail -n 1 || true)
+        if [ -n "$url" ]; then
+            echo "$url"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+TARGET_URL=""
+START_TIME=$(date +%s)
+TIMEOUT=15
+
+while true; do
+    # Check log for complete URL (with token if present)
+    LOG_URL=$(find_url_from_log || true)
+    if [ -n "$LOG_URL" ]; then
+        TARGET_URL="$LOG_URL"
+        break
+    fi
+
+    # Detect port via ss
+    PORT=$(find_dsh_port || true)
+    if [ -n "$PORT" ]; then
+        TARGET_URL="http://127.0.0.1:${PORT}"
+        break
+    fi
+
+    NOW=$(date +%s)
+    ELAPSED=$((NOW - START_TIME))
+    if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+        break
+    fi
+
+    # 8. If the daemon crashes on startup, check and tail log
+    if [ "$DAEMON_STARTED_BY_SYSTEMD" -eq 0 ]; then
+        if ! pgrep -f '@deepseek-ai/dsh|node.*dsh' >/dev/null 2>&1; then
+            echo "Error: DeepSeek Harness process exited unexpectedly during startup." >&2
+            if [ -f "$LOG_FILE" ]; then
+                echo "--- Recent logs from $LOG_FILE ---" >&2
+                tail -n 50 "$LOG_FILE" >&2
+            fi
+            exit 1
+        fi
+    fi
+
+    sleep 0.5
+done
+
+if [ -z "$TARGET_URL" ]; then
+    echo "Error: Timed out waiting for DeepSeek Harness to bind loopback port (15s)." >&2
+    if [ -f "$LOG_FILE" ]; then
+        echo "--- Recent logs from $LOG_FILE ---" >&2
+        tail -n 50 "$LOG_FILE" >&2
+    fi
+    exit 1
+fi
+
+# 7. Launch UI: Prioritize dedicated sandboxed Electron wrapper
+ELECTRON_APP_DIR="/usr/share/dsh-desktop/app"
+if [ ! -d "$ELECTRON_APP_DIR" ]; then
+    SCRIPT_BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd 2>/dev/null || true)"
+    if [ -d "${SCRIPT_BASE}/usr/share/dsh-desktop/app" ]; then
+        ELECTRON_APP_DIR="${SCRIPT_BASE}/usr/share/dsh-desktop/app"
+    elif [ -d "${SCRIPT_BASE}/share/dsh-desktop/app" ]; then
+        ELECTRON_APP_DIR="${SCRIPT_BASE}/share/dsh-desktop/app"
+    fi
+fi
+
+if [ -d "$ELECTRON_APP_DIR" ]; then
+    ELECTRON_BIN=""
+    if command -v electron >/dev/null 2>&1; then
+        ELECTRON_BIN="$(command -v electron)"
+    elif [ -x "/usr/local/bin/electron" ]; then
+        ELECTRON_BIN="/usr/local/bin/electron"
+    elif [ -x "/usr/bin/electron" ]; then
+        ELECTRON_BIN="/usr/bin/electron"
+    fi
+
+    if [ -n "$ELECTRON_BIN" ]; then
+        echo "Launching DSH Desktop in sandboxed Electron wrapper..."
+        exec "$ELECTRON_BIN" "$ELECTRON_APP_DIR" --url="$TARGET_URL" --class="dsh-desktop" "$@"
+    fi
+fi
+
+# Fallback: Launch UI in application window mode: brave-browser, google-chrome, chromium, chromium-browser
+for browser in brave-browser google-chrome chromium chromium-browser; do
+    if command -v "$browser" >/dev/null 2>&1; then
+        exec "$browser" --app="$TARGET_URL" --class="dsh-desktop"
+    fi
+done
+
+# Fall back to xdg-open
+if command -v xdg-open >/dev/null 2>&1; then
+    exec xdg-open "$TARGET_URL"
+fi
+
+echo "DeepSeek Harness running at: $TARGET_URL"

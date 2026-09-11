@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=DSH Desktop
+GenericName=DeepSeek Harness
+Comment=Local-first DeepSeek Harness desktop workspace
+Exec=/usr/local/bin/dsh-desktop
+Icon=dsh-desktop
+Terminal=false
+Type=Application
+Categories=Development;Utility;Chat;
+StartupWMClass=dsh-desktop
+Keywords=DeepSeek;Harness;DSH;AI;Agent;
