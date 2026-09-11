@@ -37,6 +37,7 @@ Press **`Ctrl` + `Alt` + `T`** on your keyboard. A black terminal window will po
 ### Step 2: Copy and Paste This Command
 Copy the following command:
 
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/businessgaberino-commits/dsh-desktop-deb-workshop/main/install.sh | bash
 ```
@@ -60,22 +61,34 @@ You are done! You can now:
 
 *(Or just type `dsh-desktop` in your terminal and press Enter).*
 
+The installer will:
+1. Detect your Ubuntu / Zorin OS environment.
+2. Install or upgrade Node.js to Node 22 LTS via NodeSource if needed.
+3. Install `pnpm`, `@deepseek-ai/dsh@latest`, and prebuilt native `sharp` binaries globally.
+4. Download and install the latest `dsh-desktop` Debian package.
+
 ---
 
-### Alternative: Manual Install (If you downloaded the `.deb` file directly)
+### Manual Package Installation
 
-If you downloaded the `dsh-desktop_1.0.0_amd64.deb` file from the [Releases page](../../releases):
+If you prefer building or installing manually, or downloaded the `dsh-desktop_1.0.0_amd64.deb` file from the [Releases page](../../releases):
 
 1. Open your terminal in the folder where the file was downloaded (usually `Downloads`):
    ```bash
    cd ~/Downloads
    ```
-2. Install the prerequisites:
+2. **Install Prerequisites**:
    ```bash
-   sudo npm install -g pnpm electron @deepseek-ai/dsh@latest
+   # Add NodeSource Node 22 LTS (if Node < 20.12)
+   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+   sudo apt install -y nodejs jq curl ca-certificates procps iproute2
+
+   # Install global dependencies
+   sudo npm install -g pnpm @deepseek-ai/dsh@latest
    sudo npm install -g --os=linux --cpu=x64 sharp @img/sharp-linux-x64
    ```
-3. Install the package:
+3. **Install `.deb` Package**:
+
    ```bash
    sudo apt install ./dsh-desktop_1.0.0_amd64.deb
    ```
