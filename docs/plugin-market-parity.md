@@ -484,12 +484,87 @@ idle, kill, marker.
    uninstall). Default: **not applicable / fail closed**. We do not own or
    attribute systemd user units or XDG autostart entries, so we never delete
    them without a proof-of-ownership mechanism equivalent to the LaunchAgent one.
-3. **XDG paths for shim dir, sockets, temp** — owner: **Phase 5** (market/host
-   integration). Current shim dir is `<dshHome>/.desktop-bin`; XDG runtime/data
-   placement for shims, the loopback socket, and temp work is decided there.
+3. **XDG paths for shim dir, sockets, temp** — owner: **Phase 9** (moved out of
+   Phase 5 as scope creep). `dshHome` is `$DSH_HOME` if set, else hardcoded
+   `~/.dsh` (not XDG). Phase 5 only audits the paths it introduces.
 4. **Wayland flag (`--ozone-platform-hint=auto`)** — owner: **Phase 9** (end-user
    polish), applied at Electron launch; may land earlier in Phase 5 if the native
    windows need it.
 5. **inotify watch limit documentation** — owner: **Phase 9** (docs/polish).
    `watchProfileActivity` is best-effort (watch errors are swallowed); document
    `fs.inotify.max_user_watches` and the degraded-liveness behavior.
+
+---
+
+## Phase 5 — Market surface (complete)
+
+### Market installs into the shared profile tree, never a generation
+
+Confirmed: Phase 1's `registry.mjs` already exports
+`SHARED_TREE_ONLY = new Set(['dshmarket'])`, and `resolveEnabledGenerations`
+skips it, so a stale `desired.json` pointer is inert. `market-routes.mjs`
+asserts at load that `SHARED_TREE_ONLY` contains the market package.
+`routePluginSpec(spec)` returns `'shared'` for the market and `'generation'`
+otherwise, and `installPlugin` dispatches accordingly, so `installGeneration`
+never receives the market spec. Bootstrap rationale: the market is the only
+path to remove a broken plugin, so it must not live in the state a broken
+plugin can corrupt.
+
+### Same-origin mutation guard (precise shape)
+
+- Loopback: `socket.remoteAddress` is `127.0.0.1`, `::1`, or `::ffff:127.0.0.1`;
+  **and** none of `Forwarded`, `X-Forwarded-For`, `X-Real-IP`,
+  `X-Forwarded-Host` are present.
+- Mutations additionally: `Origin` and `Host` present, `new URL(origin)` has
+  `protocol === 'http:'`, `host === Host` header, and `hostname` is loopback.
+- Wrong method → 405 (status route message `Request rejected.`; install/uninstall
+  `Method not allowed.`). Failed guard → 403 `Request rejected.`. Never both.
+
+### Concurrency and restart
+
+- One in-flight operation. A second install/uninstall returns **409** with the
+  current status; the client polls status at 850ms and does not queue. Status has
+  no side effects.
+- Restart supports both paths: `globalThis.dshDesktop.restartHarness()` when a
+  preload bridge exists; otherwise the server exposes `restartRequired: true` and
+  the client shows the localized restart-required copy, letting the user restart
+  from the app menu. The bridge is never required.
+
+### Locales — full list
+
+**Supported locales: `en`, `zh`.** `SUPPORTED_LOCALES` and `LOCALES` live in
+`locales.mjs`; a test asserts both dictionaries have identical key sets, all
+values are non-empty strings, and `translate` falls back to `en`. Every Phase 5
+key exists in both (`en` and `zh`), including the two new keys
+`restartRequired` and `restartRequiredHint`.
+
+### Files added
+
+- `market-constants.mjs`, `market-backend.mjs`, `market-routes.mjs`,
+  `market-server.mjs`, `market-client.mjs`, `locales.mjs`.
+- `test/market-routes.test.mjs`.
+
+### Verification
+
+- `npm test` → `# tests 76 / # pass 76 / # fail 0 / # skipped 0`.
+- HTTP: 200 status, 405 wrong method, 403 forwarded/missing-origin/bad-origin,
+  202 install, 409 concurrent, 404 unknown, static `/`, `client.js`,
+  `locales.json`.
+- Embedded browser client is syntax-checked with `node --check`.
+- Safe Mode and recovery were **not** implemented here (Phase 6).
+
+### Phase 5 platform audit (paths introduced)
+
+- **HTTP listener:** TCP loopback, ephemeral port; no filesystem path and no
+  Unix socket, so no XDG concern. If a Unix socket is ever introduced, it must
+  go under `$XDG_RUNTIME_DIR` (Phase 9).
+- **No temp/lock files:** Phase 5 writes nothing itself; installs go through the
+  Phase 4 runner. The runner's atomic temp is a sibling of the profile
+  `package.json`, which is profile data, not a cache/temp location.
+- **Static assets:** served from memory; nothing written to disk.
+- **Shim dir:** `<dshHome>/.desktop-bin` is a **Phase 4** decision and the only
+  non-XDG path; left as-is and owned by **Phase 9**.
+- **`dshHome`:** `$DSH_HOME` if set, else hardcoded `~/.dsh` — the broader XDG
+  decision is **Phase 9**.
+- **Electron binary:** Phase 5 introduces **none** into the `.deb`; chrome-sandbox
+  remains a Phase 10 contingent item.
