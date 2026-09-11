@@ -62,6 +62,18 @@ EOF
                 sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user daemon-reload 2>/dev/null || true
                 sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user enable --now dsh-desktop.service 2>/dev/null || true
             fi
+
+            # Clean up stale user desktop entry if it pointed to dsh-native
+            USER_DESKTOP_ENTRY="$USER_HOME/.local/share/applications/dsh-desktop.desktop"
+            if [ -f "$USER_DESKTOP_ENTRY" ] && grep -q "dsh-native" "$USER_DESKTOP_ENTRY" 2>/dev/null; then
+                rm -f "$USER_DESKTOP_ENTRY"
+                su - "$TARGET_USER" -c "update-desktop-database ~/.local/share/applications" 2>/dev/null || true
+            fi
+        fi
+
+        # Pre-download electron binary if install-electron is available
+        if command -v install-electron >/dev/null 2>&1; then
+            install-electron 2>/dev/null || true
         fi
 
         # 4. Link prebuilt sharp binaries

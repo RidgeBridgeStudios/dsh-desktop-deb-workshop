@@ -97,7 +97,7 @@ fi
 # Support direct foreground execution if requested via argument
 if [ "${1:-}" = "--daemon" ] || [ "${1:-}" = "--foreground" ]; then
     # 4. Critical requirement: pass --expose-internals directly to node
-    exec node --expose-internals "$DSH_ENTRY" --profile default
+    exec node --expose-internals "$DSH_ENTRY" --profile default --no-open
 fi
 
 # 3. Start systemd user service dsh-desktop.service if not active, or fallback to spawning daemon
@@ -118,7 +118,7 @@ if [ "$DAEMON_STARTED_BY_SYSTEMD" -eq 0 ]; then
             nohup /usr/local/bin/dsh-desktop-daemon >> "$LOG_FILE" 2>&1 &
         else
             # 4. Critical requirement: pass --expose-internals directly to node
-            nohup node --expose-internals "$DSH_ENTRY" --profile default >> "$LOG_FILE" 2>&1 &
+            nohup node --expose-internals "$DSH_ENTRY" --profile default --no-open >> "$LOG_FILE" 2>&1 &
         fi
     fi
 fi
@@ -241,12 +241,26 @@ fi
 
 if [ -d "$ELECTRON_APP_DIR" ]; then
     ELECTRON_BIN=""
-    if command -v electron >/dev/null 2>&1; then
+    if [ -x "${HOME}/.local/share/dsh-desktop/electron-dist/electron" ] && "${HOME}/.local/share/dsh-desktop/electron-dist/electron" --version >/dev/null 2>&1; then
+        ELECTRON_BIN="${HOME}/.local/share/dsh-desktop/electron-dist/electron"
+    elif command -v electron >/dev/null 2>&1 && electron --version >/dev/null 2>&1; then
         ELECTRON_BIN="$(command -v electron)"
-    elif [ -x "/usr/local/bin/electron" ]; then
+    elif [ -x "/usr/local/bin/electron" ] && /usr/local/bin/electron --version >/dev/null 2>&1; then
         ELECTRON_BIN="/usr/local/bin/electron"
-    elif [ -x "/usr/bin/electron" ]; then
+    elif [ -x "/usr/bin/electron" ] && /usr/bin/electron --version >/dev/null 2>&1; then
         ELECTRON_BIN="/usr/bin/electron"
+    fi
+
+    # Fallback: if electron zip is cached, extract it to ~/.local/share/dsh-desktop/electron-dist
+    if [ -z "$ELECTRON_BIN" ]; then
+        CACHED_ZIP=$(find "${HOME}/.cache/electron" -name "electron-v*.zip" 2>/dev/null | head -n 1 || true)
+        if [ -n "$CACHED_ZIP" ] && command -v unzip >/dev/null 2>&1; then
+            mkdir -p "${HOME}/.local/share/dsh-desktop/electron-dist"
+            unzip -q -o "$CACHED_ZIP" -d "${HOME}/.local/share/dsh-desktop/electron-dist" 2>/dev/null || true
+            if [ -x "${HOME}/.local/share/dsh-desktop/electron-dist/electron" ] && "${HOME}/.local/share/dsh-desktop/electron-dist/electron" --version >/dev/null 2>&1; then
+                ELECTRON_BIN="${HOME}/.local/share/dsh-desktop/electron-dist/electron"
+            fi
+        fi
     fi
 
     if [ -n "$ELECTRON_BIN" ]; then

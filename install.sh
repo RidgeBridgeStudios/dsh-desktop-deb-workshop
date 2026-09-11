@@ -59,6 +59,10 @@ fi
 # 3. Install pnpm, electron, and @deepseek-ai/dsh globally
 echo "[3/6] Installing pnpm, electron, and @deepseek-ai/dsh globally..."
 sudo npm install -g pnpm electron @deepseek-ai/dsh@latest
+if command -v install-electron >/dev/null 2>&1; then
+    echo "Downloading Electron runtime binary..."
+    sudo install-electron || true
+fi
 
 # 4. Install prebuilt sharp and @img/sharp-linux-x64 globally
 echo "[4/6] Installing prebuilt native sharp binaries..."

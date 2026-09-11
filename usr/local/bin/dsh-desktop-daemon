@@ -59,4 +59,4 @@ if [ ! -x "$NODE_BIN" ]; then
 fi
 
 # Critical execution line: --expose-internals passed directly to node binary
-exec "$NODE_BIN" --expose-internals "$DSH_ENTRY" --profile default
+exec "$NODE_BIN" --expose-internals "$DSH_ENTRY" --profile default --no-open
