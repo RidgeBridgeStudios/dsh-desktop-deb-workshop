@@ -4,3 +4,7 @@ build/
 
 # System files
 .DS_Store
+
+# Graphify knowledge graph artifacts
+graphify-out/
+.graphify*
