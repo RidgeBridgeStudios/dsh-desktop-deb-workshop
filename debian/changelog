@@ -6,5 +6,6 @@ dsh-desktop (1.0.0) stable; urgency=medium
   * Automated sharp-linux-x64 native binding linking.
   * Safe default profile initialization with package.json race prevention.
   * Systemd user service dsh-desktop.service and XDG desktop entry.
+  * Native system tray icon with backend status, restart, and quit controls.
 
- -- businessgaberino-commits <business.gaberino@gmail.com>  Fri, 11 Sep 2026 20:00:00 +0200
+ -- businessgaberino-commits <business.gaberino@gmail.com>  Fri, 11 Sep 2026 21:30:00 +0200

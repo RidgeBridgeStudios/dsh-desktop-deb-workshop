@@ -131,6 +131,8 @@ If you prefer building or installing manually, or downloaded the `dsh-desktop_1.
 DSH Desktop ships with a dedicated Electron desktop wrapper located in `/usr/share/dsh-desktop/app`:
 - **Chromium Sandboxing (`sandbox: true`)**: The DeepSeek web UI renders inside a fully sandboxed Chromium process with no direct access to Node.js or the local file system.
 - **Context Isolation (`contextIsolation: true`)**: Web content scripts cannot tamper with Electron internals.
+- **System Tray Integration**: Displays a native tray icon while running that shows real-time DSH backend status (`Running` / `Offline`). Supports single-click window toggle and provides one-click controls to restart or quit either the desktop application, the underlying DSH backend, or both.
+- **Minimize/Hide to Tray on Close**: Closing the desktop window via the close button (`[X]`) hides to the system tray so background tasks continue uninterrupted. Full exit can be triggered anytime from the tray menu or `File → Quit`.
 - **Navigation Protection**: External links (`http`, `https`, `mailto`) are strictly intercepted and opened in your default system browser via `shell.openExternal`.
 - **Seamless Loading**: Includes a dark-mode splash screen (`loading.html`) that monitors the local DSH daemon and transitions automatically upon readiness.
 - **Browser Fallback**: If the `electron` binary is not present on the host, `dsh-desktop` automatically falls back to standalone browser application window mode (`--app="$URL" --class="dsh-desktop"`) via Brave, Chrome, Chromium, or `xdg-open`.

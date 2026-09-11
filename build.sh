@@ -37,10 +37,13 @@ if [ "$MISSING_TOOLS" -ne 0 ]; then
     exit 1
 fi
 
-# Ensure PNG icon is up to date with SVG
+# Ensure PNG icons are up to date with SVG
 if [ -f "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" ] && command -v convert >/dev/null 2>&1; then
     mkdir -p "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps"
+    mkdir -p "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps"
     convert -background none -resize 128x128 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps/dsh-desktop.png" 2>/dev/null || true
+    convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/dsh-desktop/tray-icon.png" 2>/dev/null || true
+    convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps/dsh-desktop.png" 2>/dev/null || true
 fi
 
 # 2. Assemble the staging tree
