@@ -568,3 +568,102 @@ key exists in both (`en` and `zh`), including the two new keys
   decision is **Phase 9**.
 - **Electron binary:** Phase 5 introduces **none** into the `.deb`; chrome-sandbox
   remains a Phase 10 contingent item.
+
+---
+
+## Phase 6 — Recovery & Safe Mode (complete)
+
+### Module split (each independently tested)
+
+- `startup-failure.mjs` — versioned wire contract (`{ v: 1, failures: [...] }`),
+  single-line `format*`, `parsePluginStartupFailures`, `reportPluginStartupFailure`.
+- `harness-bootstrap.mjs` — closest fit for this stack: wraps the upstream DSH
+  entry and emits the report on import failure. Full owner/entry-chain
+  provenance needs upstream cooperation or a loader overlay (documented gap).
+- `detection.mjs` — evidence + the five attribution paths; structured report
+  preferred, logs only as fallback.
+- `plugin-removal.mjs` — durable ledger and tombstone.
+- `safe-mode.mjs` — isolated profile + view model.
+- `recovery-market.mjs` — compatibility-check consumer + batch planning.
+- `recovery-view.mjs` — pure, localized UI view model.
+- `recovery.mjs` — orchestration (`buildRecoveryPlan`, `applyRecoveryPlan`).
+- `external-components.mjs` — Linux fail-closed policy.
+
+### A. Structured failure report
+
+Emitted by the runtime bootstrap, not a plugin; versioned `{ v: 1 }`; single
+line; distinguishable from `dsh-desktop pnpm runner:` markers; **no `config`
+field is ever serialized** (a test passes a config and asserts it never appears).
+Recovery prefers the report; log correlation is the fallback only.
+
+### B. Recovery runs in the app process
+
+`recovery-view.mjs` and `recovery.mjs` are pure modules with no Harness
+dependency; they consume already-collected evidence and market checks. The
+surface can be served by the app process even after Harness exits. (Serving the
+page and Electron wiring is integration/Phase 10; the logic is Harness-free.)
+
+### C. Five attribution paths, unique-only
+
+Implemented in order, no others:
+1. direct third-party root hit (multiple direct hits allowed);
+2. unique transitive owner (`dependencies ∪ optionalDependencies ∪ bundle patch`);
+3. duplicate loader entry id in exactly one bundle patch;
+4. slot conflict referenced by exactly one root's code;
+5. official slot provider referenced by exactly one third-party root.
+Zero owners → `[]`; multiple owners → `[]`. Tests cover unique, zero and
+multiple matches for each path, and `buildRecoveryPlan` never falls back to all
+plugins. There is no "uninstall everything suspicious" action.
+
+### D. Uninstall ledger
+
+States `disabled → removed → bootVerifiedAt → backupDeletedAt`, with
+`cleanup-pending` on failure and retry back to `disabled`. Rules implemented and
+tested:
+- refuse `@deepseek-ai/*`, core bundles, and the market;
+- durable ledger written **first**, before the bundle list is touched;
+- backup runs once (retries do not overwrite the rollback point via
+  `backedUpAt`);
+- `uniqueOrphans(targetClosure, otherClosures)` removes only unique orphans;
+- tombstone enforcement clears the generation pointer and removes the bundle
+  entry, and throws if the plugin is still composed;
+- `bootVerifiedAt` only advances from a normal-profile start (Safe Mode never
+  calls it); `backupDeletedAt` only on the next normal boot;
+- any failure → `cleanup-pending`, disabled, no auto-retry.
+
+### E. External components — fail closed
+
+`external-components.mjs` reports `managed: false`, policy `document-only`, and
+its cleanup is a no-op that touches nothing. systemd units, XDG autostart, cron,
+and anything outside `<dshHome>`/user-data are documented, never removed. The
+reference's macOS LaunchAgent handling is not ported.
+
+### Safe Mode
+
+`SAFE_MODE_PROFILE = 'desktop-safe-mode'`, `SAFE_MODE_BUNDLES` = base + web-app,
+empty dependencies, empty `cordis.patch.yml`. `ensureSafeModeProfile` repairs
+tampering; it shares `DSH_HOME` and leaves the normal profile byte-identical.
+`shouldStartInSafeMode` is the exact `--safe-mode` switch. **Batch auto-fix is
+not in the boot path**: planning lives in `recovery-market.mjs` and is applied
+by `applyRecoveryPlan` in a normal-profile context with the runtime stopped.
+
+### Locales
+
+`en` and `zh` now hold **60 keys each**, key sets identical (tested), including
+Safe Mode and recovery copy.
+
+### Verification
+
+- `npm test` → `# tests 118 / # pass 118 / # fail 0 / # skipped 0`.
+
+### Deferred / known gaps
+
+- Registry metadata fetch and version selection are **Phase 7**
+  (`recovery-market` consumes checks; it does not fetch them).
+- Serving the recovery page and Electron window/menu wiring is integration
+  (Phase 10 E2E); the modules are Harness-free by construction.
+- Full structured provenance (owner, entry chain, loaded version, package dir)
+  requires upstream DSH cooperation or a loader overlay; the bootstrap wrapper
+  emits a best-effort report otherwise.
+- Real removal operations (backup copy, legacy detach, generation disable) are
+  injected; concrete wiring lands with the orchestration integration.

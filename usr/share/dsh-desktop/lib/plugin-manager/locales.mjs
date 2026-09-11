@@ -34,7 +34,34 @@ export const LOCALES = {
     cancel: 'Cancel',
     removed: 'Plugin market uninstalled',
     removedHint: 'dsh-market has been removed. Restart Harness to finish.',
-    uninstallFailed: 'Plugin market could not be uninstalled.'
+    uninstallFailed: 'Plugin market could not be uninstalled.',
+    safeMode: 'Safe Mode',
+    safeModeSummary: 'All third-party plugins are temporarily disabled. Sessions, settings, credentials, and workspaces are unchanged. Remove a problematic plugin, then return to normal mode.',
+    safeModeSafetyNote: 'Nothing is deleted automatically. Removing a plugin is your explicit choice.',
+    safeModeNoPlugins: 'There are no removable third-party plugins in this profile.',
+    safeModeSelectPlugins: 'Select plugins to remove',
+    safeModeSelectAll: 'Select all',
+    safeModeRemoveSelected: 'Remove selected plugins',
+    safeModeRemoving: 'Removing…',
+    safeModeRestart: 'Still {count} blocking group(s) remain. Continue?',
+    safeModeExit: 'Exit Safe Mode and restart',
+    safeModeQuit: 'Quit DSH Desktop',
+    safeModeUpgradeAll: 'Upgrade {count} plugin(s) with updates',
+    safeModeUpgrading: 'Upgrading…',
+    recoveryTitle: 'A plugin is preventing startup',
+    recoveryNoCandidate: 'No specific plugin could be identified. Enter Safe Mode to disable all third-party plugins and keep using the Agent.',
+    recoveryRemove: 'Remove this plugin and continue',
+    recoveryRemoveMany: 'Remove these {count} plugins and continue',
+    recoveryEnterSafeMode: 'Enter Safe Mode',
+    recoveryUpgrade: 'Upgrade plugin and restart',
+    recoveryUpgrading: 'Upgrading…',
+    recoveryUninstall: 'Uninstall plugin',
+    recoveryRetryChecks: 'Retry update checks',
+    recoveryAutoProcess: 'Auto-recover ({upgrades} upgrades, {removals} removals)',
+    recoveryLog: 'Open Harness log',
+    recoveryTechnical: 'View technical details',
+    recoverySafetyNote: 'Your workspaces, sessions, model settings, and other plugins will not be removed.',
+    externalComponentsNotice: 'This plugin may install system components outside DSH Desktop. DSH Desktop does not manage systemd units, autostart entries, or cron jobs; review the plugin documentation before removing it.'
   },
   zh: {
     nav: '插件市场',
@@ -69,7 +96,34 @@ export const LOCALES = {
     cancel: '取消',
     removed: '插件市场已卸载',
     removedHint: 'dsh-market 已移除，请重启 Harness 完成卸载。',
-    uninstallFailed: '插件市场卸载失败。'
+    uninstallFailed: '插件市场卸载失败。',
+    safeMode: '安全模式',
+    safeModeSummary: '已暂时停用所有第三方插件。会话、设置、凭据和工作区均未改动。可卸载有问题的插件后再返回正常模式。',
+    safeModeSafetyNote: '不会自动删除任何内容。卸载插件需要你明确选择。',
+    safeModeNoPlugins: '当前 profile 中没有可卸载的第三方插件。',
+    safeModeSelectPlugins: '选择要卸载的插件',
+    safeModeSelectAll: '全选',
+    safeModeRemoveSelected: '卸载所选插件',
+    safeModeRemoving: '正在卸载…',
+    safeModeRestart: '仍有 {count} 组阻断问题，是否继续？',
+    safeModeExit: '退出安全模式并重启',
+    safeModeQuit: '退出 DSH Desktop',
+    safeModeUpgradeAll: '一键升级 {count} 个有更新的插件',
+    safeModeUpgrading: '正在升级…',
+    recoveryTitle: '有插件导致启动失败',
+    recoveryNoCandidate: '无法定位具体插件。可进入安全模式停用所有第三方插件，继续使用 Agent。',
+    recoveryRemove: '卸载此插件并继续检测',
+    recoveryRemoveMany: '卸载这 {count} 个插件并继续检测',
+    recoveryEnterSafeMode: '进入安全模式',
+    recoveryUpgrade: '升级插件并重启',
+    recoveryUpgrading: '正在升级…',
+    recoveryUninstall: '卸载插件',
+    recoveryRetryChecks: '重新检查更新',
+    recoveryAutoProcess: '一键自动处理（升级 {upgrades}，卸载 {removals}）',
+    recoveryLog: '打开 Harness 日志',
+    recoveryTechnical: '查看技术详情',
+    recoverySafetyNote: '你的工作区、会话、模型设置和其他插件不会被移除。',
+    externalComponentsNotice: '此插件可能在 DSH Desktop 之外安装系统组件。DSH Desktop 不管理系统单元、自启动项或定时任务；卸载前请查阅插件文档。'
   }
 }
 
@@ -82,4 +136,8 @@ export function resolveLocale(preference) {
 export function translate(locale, key) {
   const language = resolveLocale(locale)
   return LOCALES[language][key] ?? LOCALES.en[key] ?? key
+}
+
+export function formatMessage(locale, key, values = {}) {
+  return translate(locale, key).replace(/\{(\w+)\}/gu, (_, name) => String(values[name] ?? ''))
 }
