@@ -74,6 +74,16 @@ cp -r "${SCRIPT_DIR}/usr/"* "${STAGING_DIR}/usr/"
 cp -r "${SCRIPT_DIR}/etc/"* "${STAGING_DIR}/etc/"
 cp -r "${SCRIPT_DIR}/lib/"* "${STAGING_DIR}/lib/"
 
+# Vendor the app's bundled production dependencies (exact-pinned pnpm). The
+# installer and package runner resolve pnpm from this closure; a user's system
+# pnpm is never consulted. Run 'npm ci' before building.
+if [ ! -d "${SCRIPT_DIR}/node_modules/pnpm" ]; then
+    echo "Error: node_modules/pnpm is missing. Run 'npm ci' before building." >&2
+    exit 1
+fi
+mkdir -p "${STAGING_DIR}/usr/share/dsh-desktop/node_modules"
+cp -a "${SCRIPT_DIR}/node_modules/pnpm" "${STAGING_DIR}/usr/share/dsh-desktop/node_modules/"
+
 # 3. Set correct permissions
 echo "[3/6] Setting standard file and directory permissions..."
 # All directories: 0755

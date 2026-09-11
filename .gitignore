@@ -2,6 +2,9 @@
 build/
 *.log
 
+# Dev dependencies (pnpm is vendored into the package at build time)
+node_modules/
+
 # System files
 .DS_Store
 
