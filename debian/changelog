@@ -8,4 +8,4 @@ dsh-desktop (1.0.0) stable; urgency=medium
   * Systemd user service dsh-desktop.service and XDG desktop entry.
   * Native system tray icon with backend status, restart, and quit controls.
 
- -- businessgaberino-commits <business.gaberino@gmail.com>  Fri, 11 Sep 2026 21:30:00 +0200
+ -- RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>  Fri, 11 Sep 2026 21:30:00 +0200

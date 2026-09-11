@@ -508,7 +508,7 @@ function setupMenu() {
         {
           label: 'DSH Desktop Workshop',
           click: async () => {
-            await shell.openExternal('https://github.com/businessgaberino-commits/dsh-desktop-deb-workshop');
+            await shell.openExternal('https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop');
           }
         }
       ]

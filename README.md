@@ -39,7 +39,7 @@ Copy the following command:
 
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/businessgaberino-commits/dsh-desktop-deb-workshop/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/main/install.sh | bash
 ```
 
 Now, click inside your terminal window and press **`Ctrl` + `Shift` + `V`** (or right-click and choose **Paste**). Then press **`Enter`**.
@@ -160,7 +160,7 @@ Never attempt to reintroduce `NODE_OPTIONS` for this flag.
 To compile the `.deb` package yourself:
 
 ```bash
-git clone https://github.com/businessgaberino-commits/dsh-desktop-deb-workshop.git
+git clone https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop.git
 cd dsh-desktop-deb-workshop
 ./build.sh
 ```

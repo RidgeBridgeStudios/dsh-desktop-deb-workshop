@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="businessgaberino-commits/dsh-desktop-deb-workshop"
+REPO="RidgeBridgeStudios/dsh-desktop-deb-workshop"
 VERSION="1.0.0"
 DEB_NAME="dsh-desktop_${VERSION}_amd64.deb"
 
