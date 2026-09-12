@@ -1,21 +1,23 @@
-import { dshHome as defaultDshHome, LIVE_PROFILE } from './paths.mjs'
+import { dshHome as defaultDshHome, LIVE_PROFILE } from '../../lib/plugin-manager/paths.mjs'
 import {
-  INSTALL_PATH,
   MARKET_PACKAGE,
   RECOMMENDED_MARKET_VERSION,
   STATUS_PATH,
   UNINSTALL_PATH
-} from './market-constants.mjs'
+} from '../../lib/plugin-manager/market-constants.mjs'
 import {
   installMarketShared,
   readMarketState,
   uninstallMarketShared
-} from './market-backend.mjs'
-import { SHARED_TREE_ONLY } from './registry.mjs'
+} from '../../lib/plugin-manager/market-backend.mjs'
+import { SHARED_TREE_ONLY } from '../../lib/plugin-manager/registry.mjs'
 
 if (!SHARED_TREE_ONLY.has(MARKET_PACKAGE)) {
   throw new Error(`The market package ${MARKET_PACKAGE} must stay in the shared tree.`)
 }
+
+export const name = 'dsh-desktop-market-installer'
+export const inject = ['webServer']
 
 const FORWARDED_HEADERS = ['forwarded', 'x-forwarded-for', 'x-real-ip', 'x-forwarded-host']
 
@@ -34,8 +36,8 @@ export function isTrustedRequest(req, mutation = false) {
   if (!isLoopback(address)) return false
   if (hasForwardedAddress(req?.headers)) return false
   if (!mutation) return true
-  const origin = req.headers.origin
-  const host = req.headers.host
+  const origin = req.headers?.origin
+  const host = req.headers?.host
   if (typeof origin !== 'string' || typeof host !== 'string') return false
   let parsed
   try {
@@ -118,6 +120,7 @@ export function createMarketService(options = {}) {
         }
       }))
       .then(() => {
+        if (kind === 'uninstall') removed = true
         restartRequired = true
       })
       .catch((failure) => {
@@ -189,16 +192,6 @@ export function createMarketRequestHandler(service) {
       return sendJson(res, 200, await service.status())
     }
 
-    if (url.pathname === INSTALL_PATH) {
-      if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' })
-      if (!isTrustedRequest(req, true)) return sendJson(res, 403, { error: 'Request rejected.' })
-      const outcome = await service.install()
-      if (outcome.kind === 'busy') return sendJson(res, 409, await service.status())
-      if (outcome.kind === 'already') return sendJson(res, 200, await service.status())
-      if (outcome.kind === 'error') return sendJson(res, 500, await service.status())
-      return sendJson(res, 202, await service.status())
-    }
-
     if (url.pathname === UNINSTALL_PATH) {
       if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' })
       if (!isTrustedRequest(req, true)) return sendJson(res, 403, { error: 'Request rejected.' })
@@ -211,4 +204,30 @@ export function createMarketRequestHandler(service) {
 
     return sendJson(res, 404, { error: 'Not found.' })
   }
+}
+
+export function apply(ctx, options = {}) {
+  const service = options.service ?? createMarketService(options)
+  const handler = createMarketRequestHandler(service)
+
+  if (ctx && ctx.webServer) {
+    if (typeof ctx.webServer.get === 'function' && typeof ctx.webServer.post === 'function') {
+      ctx.webServer.get(STATUS_PATH, async (req, res) => {
+        if (!isTrustedRequest(req, false)) return sendJson(res, 403, { error: 'Request rejected.' })
+        return sendJson(res, 200, await service.status())
+      })
+      ctx.webServer.post(UNINSTALL_PATH, async (req, res) => {
+        if (!isTrustedRequest(req, true)) return sendJson(res, 403, { error: 'Request rejected.' })
+        const outcome = await service.uninstall()
+        if (outcome.kind === 'busy') return sendJson(res, 409, await service.status())
+        if (outcome.kind === 'already') return sendJson(res, 200, await service.status())
+        if (outcome.kind === 'error') return sendJson(res, 500, await service.status())
+        return sendJson(res, 202, await service.status())
+      })
+    } else if (typeof ctx.webServer.use === 'function') {
+      ctx.webServer.use(handler)
+    }
+  }
+
+  return { service, handler }
 }

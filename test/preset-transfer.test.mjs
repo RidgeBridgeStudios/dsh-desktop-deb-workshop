@@ -25,7 +25,7 @@ import {
   PRESET_IMPORT_PATH
 } from '../usr/share/dsh-desktop/lib/plugin-manager/preset-routes.mjs'
 import { dshHome, LIVE_PROFILE } from '../usr/share/dsh-desktop/lib/plugin-manager/paths.mjs'
-import { createMarketServer, listenMarketServer } from '../usr/share/dsh-desktop/lib/plugin-manager/market-server.mjs'
+import { createServer } from 'node:http'
 
 test('constants: size caps match the specification directly', () => {
   assert.equal(MAX_FILES, 512)
@@ -478,11 +478,12 @@ test('server: preset routes work when mounted on market server', async (t) => {
   await mkdir(presetDir, { recursive: true })
   await writeFile(join(presetDir, 'agent.cordis.yml'), '[]\n')
 
-  const fakeService = { status: async () => ({}) }
-  const server = createMarketServer(fakeService, {
-    presetOptions: { roots: [{ path: temp, trust: 'user' }] }
+  const handlePreset = createPresetRequestHandler({ roots: [{ path: temp, trust: 'user' }] })
+  const server = createServer(async (req, res) => {
+    return handlePreset(req, res)
   })
-  const addr = await listenMarketServer(server)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const addr = server.address()
   t.after(() => server.close())
 
   const res = await fetch(`http://127.0.0.1:${addr.port}${PRESET_EXPORT_PATH}?agentPreset=sample`)

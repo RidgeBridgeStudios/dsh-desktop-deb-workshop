@@ -3,24 +3,26 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 
 import {
+  apply,
   createMarketRequestHandler,
   createMarketService,
   hasForwardedAddress,
   isLoopback,
-  isTrustedRequest
-} from '../usr/share/dsh-desktop/lib/plugin-manager/market-routes.mjs'
+  isTrustedRequest,
+  name as pluginName,
+  inject as pluginInject
+} from '../usr/share/dsh-desktop/packages/dsh-desktop-market-installer/index.js'
 import {
-  CLIENT_PATH,
+  apply as clientApply,
+  inject as clientInject,
+  name as clientName
+} from '../usr/share/dsh-desktop/packages/dsh-desktop-market-installer/client.js'
+import {
   INSTALL_PATH,
-  LOCALES_PATH,
   MARKET_PACKAGE,
   STATUS_PATH,
   UNINSTALL_PATH
 } from '../usr/share/dsh-desktop/lib/plugin-manager/market-constants.mjs'
-import {
-  createMarketServer,
-  listenMarketServer
-} from '../usr/share/dsh-desktop/lib/plugin-manager/market-server.mjs'
 import { routePluginSpec } from '../usr/share/dsh-desktop/lib/plugin-manager/market-backend.mjs'
 import { SHARED_TREE_ONLY } from '../usr/share/dsh-desktop/lib/plugin-manager/registry.mjs'
 import { LOCALES, SUPPORTED_LOCALES, translate } from '../usr/share/dsh-desktop/lib/plugin-manager/locales.mjs'
@@ -143,80 +145,101 @@ test('uninstalling an absent market records an uninstalled status', async () => 
   assert.equal(status.restartRequired, true)
 })
 
-test('HTTP routes enforce method, trust and concurrency', async (t) => {
+test('Cordis market installer HTTP routes enforce method, trust and concurrency', async (t) => {
   const { service, setState, release } = controlledService()
-  const server = createMarketServer(service)
-  const address = await listenMarketServer(server)
+  const handler = createMarketRequestHandler(service)
+  const server = http.createServer(handler)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const port = server.address().port
   t.after(() => new Promise((resolve) => server.close(resolve)))
-  const port = address.port
 
+  // Status check
   const status = await request(port, 'GET', STATUS_PATH)
   assert.equal(status.status, 200)
   assert.equal(status.json.phase, 'absent')
 
+  // Method guards
   assert.equal((await request(port, 'POST', STATUS_PATH)).status, 405)
-  assert.equal((await request(port, 'GET', INSTALL_PATH)).status, 405)
   assert.equal((await request(port, 'POST', STATUS_PATH)).json.error, 'Request rejected.')
 
-  const forwarded = await request(port, 'POST', INSTALL_PATH, { 'x-forwarded-for': '203.0.113.7' })
+  // HTTP install route was deleted per Decision B (returns 404)
+  assert.equal((await request(port, 'POST', INSTALL_PATH)).status, 404)
+  assert.equal((await request(port, 'GET', INSTALL_PATH)).status, 404)
+
+  // Trust checks on uninstall
+  const forwarded = await request(port, 'POST', UNINSTALL_PATH, { 'x-forwarded-for': '203.0.113.7' })
   assert.equal(forwarded.status, 403)
 
-  const missingOrigin = await request(port, 'POST', INSTALL_PATH, { host: `127.0.0.1:${port}` })
+  const missingOrigin = await request(port, 'POST', UNINSTALL_PATH, { host: `127.0.0.1:${port}` })
   assert.equal(missingOrigin.status, 403)
 
-  const badOrigin = await request(port, 'POST', INSTALL_PATH, {
+  const badOrigin = await request(port, 'POST', UNINSTALL_PATH, {
     origin: 'http://evil.test',
     host: `127.0.0.1:${port}`
   })
   assert.equal(badOrigin.status, 403)
 
-  const good = await request(port, 'POST', INSTALL_PATH, {
+  // Valid uninstall start
+  setState({ dependency: '^1.5.0', installedVersion: '1.5.0' })
+  const good = await request(port, 'POST', UNINSTALL_PATH, {
     origin: `http://127.0.0.1:${port}`,
     host: `127.0.0.1:${port}`
   })
   assert.equal(good.status, 202)
-  assert.equal(good.json.phase, 'installing')
+  assert.equal(good.json.phase, 'uninstalling')
 
-  const concurrent = await request(port, 'POST', INSTALL_PATH, {
+  // Concurrency collision during active uninstall
+  const concurrent = await request(port, 'POST', UNINSTALL_PATH, {
     origin: `http://127.0.0.1:${port}`,
     host: `127.0.0.1:${port}`
   })
   assert.equal(concurrent.status, 409)
-  assert.equal(concurrent.json.phase, 'installing')
+  assert.equal(concurrent.json.phase, 'uninstalling')
 
-  setState({ dependency: '^1.5.0', installedVersion: '1.5.0' })
+  setState({ dependency: undefined, installedVersion: undefined })
   release()
   await service.dispose()
 
+  // Uninstalled status reflects restartRequired
   const after = await request(port, 'GET', STATUS_PATH)
-  assert.equal(after.json.phase, 'installed')
-  assert.equal(after.json.installedVersion, '1.5.0')
+  assert.equal(after.json.phase, 'uninstalled')
   assert.equal(after.json.restartRequired, true)
 
   assert.equal((await request(port, 'GET', UNINSTALL_PATH)).status, 405)
   assert.equal((await request(port, 'GET', '/nope')).status, 404)
 })
 
-test('serves the localized market surface assets', async (t) => {
-  const { service } = controlledService()
-  const server = createMarketServer(service)
-  const address = await listenMarketServer(server)
-  t.after(() => new Promise((resolve) => server.close(resolve)))
-  const port = address.port
+test('Cordis plugin registration attaches routes to webServer', () => {
+  assert.equal(pluginName, 'dsh-desktop-market-installer')
+  assert.deepEqual(pluginInject, ['webServer'])
 
-  const html = await request(port, 'GET', '/')
-  assert.equal(html.status, 200)
-  assert.match(html.body, /dsh-market-root/u)
+  const registeredRoutes = {}
+  const mockWebServer = {
+    get: (path, handler) => { registeredRoutes[`GET ${path}`] = handler },
+    post: (path, handler) => { registeredRoutes[`POST ${path}`] = handler }
+  }
 
-  const script = await request(port, 'GET', CLIENT_PATH)
-  assert.equal(script.status, 200)
-  assert.match(script.headers['content-type'], /javascript/u)
-  assert.match(script.body, /restartHarness/u)
-  assert.match(script.body, /850/u)
+  const { service, handler } = apply({ webServer: mockWebServer })
+  assert.ok(typeof registeredRoutes[`GET ${STATUS_PATH}`] === 'function')
+  assert.ok(typeof registeredRoutes[`POST ${UNINSTALL_PATH}`] === 'function')
+  assert.equal(registeredRoutes[`POST ${INSTALL_PATH}`], undefined)
+})
 
-  const locales = await request(port, 'GET', LOCALES_PATH)
-  assert.equal(locales.status, 200)
-  assert.deepEqual(Object.keys(locales.json).sort(), [...SUPPORTED_LOCALES].sort())
+test('Cordis client module registers settings slots', () => {
+  assert.equal(clientName, 'dsh-desktop-market-installer/client')
+  assert.deepEqual(clientInject, ['slots', 'locale'])
+
+  const registeredSlots = []
+  const mockCtx = {
+    slots: {
+      register: (slot, config) => { registeredSlots.push({ slot, config }) }
+    }
+  }
+
+  clientApply(mockCtx)
+  assert.equal(registeredSlots.length, 2)
+  assert.equal(registeredSlots[0].slot, 'settings.section')
+  assert.equal(registeredSlots[1].slot, 'settings.plugins.tab')
 })
 
 test('every locale defines every key', () => {
@@ -231,18 +254,4 @@ test('every locale defines every key', () => {
   assert.equal(translate('en', 'install'), LOCALES.en.install)
   assert.equal(translate('zh-Hans', 'install'), LOCALES.zh.install)
   assert.equal(translate('fr', 'install'), LOCALES.en.install)
-})
-
-test('a request handler can be invoked directly', async () => {
-  const { service } = controlledService()
-  const handler = createMarketRequestHandler(service)
-  const response = {
-    code: undefined,
-    body: '',
-    writeHead(code) { this.code = code },
-    end(body) { this.body = body }
-  }
-  await handler({ method: 'GET', url: STATUS_PATH, socket: { remoteAddress: '127.0.0.1' }, headers: {} }, response)
-  assert.equal(response.code, 200)
-  assert.equal(JSON.parse(response.body).phase, 'absent')
 })
