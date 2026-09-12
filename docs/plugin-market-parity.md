@@ -825,3 +825,23 @@ rather than grouped per route commit.
 
 - `npm test` → `# tests 169 / # pass 169 / # fail 0 / # skipped 0`.
 
+---
+
+## Phase 9 — Audit, Platform Cleanup & Decisions
+
+### 1. Platform Decisions: `dshHome` and the shim path
+
+#### a. `dshHome` location decision
+`dshHome()` returns `$DSH_HOME` if set, otherwise falling back to `~/.dsh`.
+**Decision**: We plainly do NOT move `dshHome` to an XDG location (`$XDG_CONFIG_HOME/dsh` or `$XDG_DATA_HOME/dsh`).
+**Reasoning**: `~/.dsh` is not ours to change; it is the upstream DeepSeek Harness project's established convention. Upstream tooling, core CLI components, and existing user workspaces expect and rely on `~/.dsh`. Moving it would break compatibility with upstream tooling and existing user data. XDG compliance for the desktop wrapper does not extend to another upstream project's home directory.
+
+#### b. Shim directory location decision
+`ensurePnpmShim(home)` writes `pnpm` and `node` wrapper scripts into `<dshHome>/.desktop-bin/`.
+**Decision**: We retain `<dshHome>/.desktop-bin/` and do not move it to `$XDG_DATA_HOME/dsh-desktop/bin/`.
+**Reasoning**:
+1. **Scoping & Hermetic Isolation**: The shim's sole purpose is to be prepended to `PATH` for DSH-invoked profile operations. Scoping it under `<dshHome>` ensures that any custom or isolated test harness run specifying `$DSH_HOME` remains hermetically self-contained. Placing the shim in `$XDG_DATA_HOME/dsh-desktop/bin/` would create global mutable user state shared across distinct DSH environments, causing test and multi-instance concurrency collisions.
+2. **Lifecycle alignment**: The shim binary wrappers contain paths specific to the active runtime and Electron binary. Keeping them inside `<dshHome>` ensures all state managed by the harness lifecycle lives together, simplifying backup and removal.
+3. **Zero migration risk**: The directory is populated idempotently on demand by `ensurePnpmShim(home)` without needing stateful upgrade migrations.
+
+
