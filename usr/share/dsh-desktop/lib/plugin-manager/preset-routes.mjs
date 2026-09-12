@@ -1,13 +1,17 @@
+import { existsSync } from 'node:fs'
 import { lstat, readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import {
   createPresetArchive,
+  inspectPresetArchive,
   isOsMetadataPath,
+  MAX_COMPRESSED_BYTES,
   MAX_FILES,
   MAX_FILE_BYTES,
-  MAX_UNCOMPRESSED_BYTES
+  MAX_UNCOMPRESSED_BYTES,
+  PRESET_ID_PATTERN
 } from './preset-archive.mjs'
 import { dshHome as defaultDshHome, LIVE_PROFILE, profileDirectory } from './paths.mjs'
 import { sendJson } from './market-routes.mjs'
@@ -175,4 +179,160 @@ export async function handlePresetExport(req, res, options = {}) {
     'cache-control': 'no-store'
   })
   res.end(Buffer.from(archiveBuffer))
+}
+
+export function readBodyBuffer(req, signal, maxBytes = MAX_COMPRESSED_BYTES) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new AbortError())
+    const chunks = []
+    let totalBytes = 0
+
+    function onAbort() {
+      cleanup()
+      reject(new AbortError())
+    }
+
+    function onData(chunk) {
+      totalBytes += chunk.length
+      if (totalBytes > maxBytes) {
+        cleanup()
+        reject(new Error(`Payload exceeds maximum size of ${maxBytes} bytes`))
+        return
+      }
+      chunks.push(chunk)
+    }
+
+    function onEnd() {
+      cleanup()
+      resolve(Buffer.concat(chunks))
+    }
+
+    function onError(err) {
+      cleanup()
+      reject(err)
+    }
+
+    function cleanup() {
+      signal?.removeEventListener('abort', onAbort)
+      req.removeListener('data', onData)
+      req.removeListener('end', onEnd)
+      req.removeListener('error', onError)
+    }
+
+    signal?.addEventListener('abort', onAbort)
+    req.on('data', onData)
+    req.on('end', onEnd)
+    req.on('error', onError)
+  })
+}
+
+export function findUserWritableRoot(roots) {
+  const root = roots.find((candidate) => candidate.trust === 'user')
+  if (!root) throw new Error('No user-writable preset root is configured')
+  return root.path
+}
+
+export async function handlePresetImportPreview(req, res, options = {}) {
+  const {
+    roots,
+    harnessBase = defaultHarnessBase(),
+    signal = req.signal,
+    scanRootFn,
+    bodyBuffer: injectedBuffer
+  } = options
+
+  if (signal?.aborted) {
+    return sendJson(res, 499, { error: 'Client closed request.' })
+  }
+
+  let bodyBuffer = injectedBuffer
+  if (!bodyBuffer) {
+    try {
+      bodyBuffer = await readBodyBuffer(req, signal, MAX_COMPRESSED_BYTES)
+    } catch (err) {
+      if (err instanceof AbortError || signal?.aborted) {
+        return sendJson(res, 499, { error: 'Client closed request.' })
+      }
+      return sendJson(res, 400, { error: err.message })
+    }
+  }
+
+  let parsed
+  try {
+    parsed = inspectPresetArchive(bodyBuffer)
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message })
+  }
+
+  let url
+  try {
+    url = new URL(req.url ?? '/', 'http://127.0.0.1')
+  } catch {
+    return sendJson(res, 400, { error: 'Invalid URL.' })
+  }
+
+  const queryTargetId = url.searchParams.get('agentPreset')
+  const targetId = queryTargetId && queryTargetId.trim() !== '' ? queryTargetId.trim() : parsed.manifest.id
+
+  if (!PRESET_ID_PATTERN.test(targetId)) {
+    return sendJson(res, 400, { error: `Invalid preset target id: ${targetId}` })
+  }
+
+  let scanFn = scanRootFn
+  if (!scanFn) {
+    try {
+      const presetsPkg = await import('@deepseek-ai/dsh-agent-presets')
+      scanFn = presetsPkg.scanRoot
+    } catch {
+      return sendJson(res, 500, { error: 'Preset subsystem is not available.' })
+    }
+  }
+
+  let conflict = false
+  for (const root of roots) {
+    try {
+      const found = await scanFn(root, harnessBase)
+      if (found.some((p) => p.id === targetId)) {
+        conflict = true
+        break
+      }
+    } catch {
+      // Continue checking
+    }
+  }
+
+  if (!conflict) {
+    try {
+      const userPath = findUserWritableRoot(roots)
+      if (existsSync(join(userPath, targetId))) {
+        conflict = true
+      }
+    } catch {}
+  }
+
+  const { manifest } = parsed
+  const responseData = {
+    ok: true,
+    agentPreset: targetId,
+    sourceAgentPreset: manifest.id,
+    name: manifest.name,
+    description: manifest.description,
+    ...(manifest.sourceDshVersion ? { sourceDshVersion: manifest.sourceDshVersion } : {}),
+    fileCount: parsed.fileCount,
+    totalSize: parsed.totalSize,
+    conflict,
+    warnings: parsed.warnings,
+    installed: false,
+    manifest: {
+      id: targetId,
+      originalId: manifest.id,
+      name: manifest.name,
+      description: manifest.description,
+      icon: manifest.icon,
+      ...(manifest.sourceDshVersion ? { sourceDshVersion: manifest.sourceDshVersion } : {}),
+      ...(manifest.exportedAt ? { exportedAt: manifest.exportedAt } : {})
+    }
+  }
+
+  return sendJson(res, 200, responseData)
 }
