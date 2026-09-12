@@ -24,7 +24,7 @@ docs/                                  # Architecture specifications (plugin-mar
 etc/xdg/autostart/                     # Desktop daemon autostart configuration
 lib/systemd/user/                      # Systemd user service definition (dsh-desktop.service)
 usr/local/bin/                         # CLI and desktop launcher scripts (dsh-desktop, daemon)
-usr/share/dsh-desktop/app/             # Electron desktop frontend (main.js, preload.js, views)
+usr/share/dsh-desktop/app/             # Electron desktop frontend (main.js, preload.cjs, views)
 usr/share/dsh-desktop/lib/plugin-manager/ # Plugin registry, projection, recovery, and runner engines
 usr/share/dsh-desktop/packages/        # Market installer service package
 test/                                  # Integration & unit test suites (Node.js ESM)
@@ -55,7 +55,7 @@ test/                                  # Integration & unit test suites (Node.js
 | Symlink projection & bundle state | `usr/share/dsh-desktop/lib/plugin-manager/projection.mjs` |
 | Preset archive export / import | `usr/share/dsh-desktop/lib/plugin-manager/preset-routes.mjs`, `preset-archive.mjs` |
 | Crash recovery & safe mode | `usr/share/dsh-desktop/lib/plugin-manager/recovery.mjs`, `safe-mode.mjs` |
-| Electron window, tray & splash | `usr/share/dsh-desktop/app/main.js`, `preload.js` |
+| Electron window, tray & splash | `usr/share/dsh-desktop/app/main.js`, `preload.cjs` |
 | Daemon & desktop launcher scripts | `usr/local/bin/dsh-desktop`, `usr/local/bin/dsh-desktop-daemon` |
 | Debian package assembly & metadata | `debian/control`, `debian/postinst`, `build.sh` |
 

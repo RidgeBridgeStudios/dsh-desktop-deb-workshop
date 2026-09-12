@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { registerPreloadBridges } from '../usr/share/dsh-desktop/app/preload.js'
+import { registerPreloadBridges } from '../usr/share/dsh-desktop/app/preload.cjs'
 
 test('preload bridges expose reconciled namespaces and correct IPC channels', async () => {
   const exposed = {}

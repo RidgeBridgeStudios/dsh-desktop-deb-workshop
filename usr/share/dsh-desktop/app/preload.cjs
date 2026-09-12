@@ -1,7 +1,7 @@
 // Preload script for DSH Desktop Electron wrapper.
 // Strictly sandboxed: sandbox: true, contextIsolation: true, nodeIntegration: false.
 
-export function registerPreloadBridges(bridge, ipc, target = (typeof window !== 'undefined' ? window : null)) {
+function registerPreloadBridges(bridge, ipc, target = (typeof window !== 'undefined' ? window : null)) {
   if (bridge && typeof bridge.exposeInMainWorld === 'function') {
     bridge.exposeInMainWorld('dshDesktop', {
       restartHarness: () => ipc?.invoke('harness:restart'),
@@ -28,11 +28,17 @@ export function registerPreloadBridges(bridge, ipc, target = (typeof window !== 
 }
 
 // When loaded inside Electron renderer preload context
-try {
-  const electron = await import('electron');
-  if (electron?.contextBridge && electron?.ipcRenderer) {
-    registerPreloadBridges(electron.contextBridge, electron.ipcRenderer);
+if (typeof require === 'function') {
+  try {
+    const { contextBridge, ipcRenderer } = require('electron');
+    if (contextBridge && ipcRenderer) {
+      registerPreloadBridges(contextBridge, ipcRenderer);
+    }
+  } catch {
+    // Non-Electron execution (e.g. testing)
   }
-} catch {
-  // Non-Electron execution (e.g. testing)
 }
+
+module.exports = {
+  registerPreloadBridges
+};

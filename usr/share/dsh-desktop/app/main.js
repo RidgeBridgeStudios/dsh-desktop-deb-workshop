@@ -496,7 +496,7 @@ export function createWindow() {
       nodeIntegrationInWorker: false,
       webSecurity: true,
       allowRunningInsecureContent: false,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.cjs')
     }
   });
 
