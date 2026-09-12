@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { lstat, readdir, readFile, stat } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -323,6 +323,164 @@ export async function handlePresetImportPreview(req, res, options = {}) {
     conflict,
     warnings: parsed.warnings,
     installed: false,
+    manifest: {
+      id: targetId,
+      originalId: manifest.id,
+      name: manifest.name,
+      description: manifest.description,
+      icon: manifest.icon,
+      ...(manifest.sourceDshVersion ? { sourceDshVersion: manifest.sourceDshVersion } : {}),
+      ...(manifest.exportedAt ? { exportedAt: manifest.exportedAt } : {})
+    }
+  }
+
+  return sendJson(res, 200, responseData)
+}
+
+export async function handlePresetImportInstall(req, res, options = {}) {
+  const {
+    roots,
+    harnessBase = defaultHarnessBase(),
+    signal = req.signal,
+    scanRootFn,
+    bodyBuffer: injectedBuffer
+  } = options
+
+  if (signal?.aborted) {
+    return sendJson(res, 499, { error: 'Client closed request.' })
+  }
+
+  let bodyBuffer = injectedBuffer
+  if (!bodyBuffer) {
+    try {
+      bodyBuffer = await readBodyBuffer(req, signal, MAX_COMPRESSED_BYTES)
+    } catch (err) {
+      if (err instanceof AbortError || signal?.aborted) {
+        return sendJson(res, 499, { error: 'Client closed request.' })
+      }
+      return sendJson(res, 400, { error: err.message })
+    }
+  }
+
+  let parsed
+  try {
+    parsed = inspectPresetArchive(bodyBuffer)
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message })
+  }
+
+  let url
+  try {
+    url = new URL(req.url ?? '/', 'http://127.0.0.1')
+  } catch {
+    return sendJson(res, 400, { error: 'Invalid URL.' })
+  }
+
+  const queryTargetId = url.searchParams.get('agentPreset')
+  const targetId = queryTargetId && queryTargetId.trim() !== '' ? queryTargetId.trim() : parsed.manifest.id
+
+  if (!PRESET_ID_PATTERN.test(targetId)) {
+    return sendJson(res, 400, { error: `Invalid preset target id: ${targetId}` })
+  }
+
+  let scanFn = scanRootFn
+  if (!scanFn) {
+    try {
+      const presetsPkg = await import('@deepseek-ai/dsh-agent-presets')
+      scanFn = presetsPkg.scanRoot
+    } catch {
+      return sendJson(res, 500, { error: 'Preset subsystem is not available.' })
+    }
+  }
+
+  for (const root of roots) {
+    try {
+      const found = await scanFn(root, harnessBase)
+      if (found.some((p) => p.id === targetId)) {
+        return sendJson(res, 409, { error: `Preset with id "${targetId}" already exists.` })
+      }
+    } catch {}
+  }
+
+  let userRoot
+  try {
+    userRoot = findUserWritableRoot(roots)
+  } catch (err) {
+    return sendJson(res, 500, { error: err.message })
+  }
+
+  await mkdir(userRoot, { recursive: true, mode: 0o755 })
+  const finalTargetPath = join(userRoot, targetId)
+  if (existsSync(finalTargetPath)) {
+    return sendJson(res, 409, { error: `Target preset directory already exists: ${finalTargetPath}` })
+  }
+
+  let tempStagingDir
+  try {
+    tempStagingDir = await mkdtemp(join(userRoot, '.import-tmp-'))
+  } catch (err) {
+    return sendJson(res, 500, { error: `Failed to create temporary staging directory: ${err.message}` })
+  }
+
+  try {
+    if (signal?.aborted) throw new AbortError()
+
+    const stagingTarget = join(tempStagingDir, targetId)
+    await mkdir(stagingTarget, { recursive: true, mode: 0o755 })
+
+    for (const [archivePath, data] of Object.entries(parsed.entries)) {
+      if (signal?.aborted) throw new AbortError()
+      const relative = archivePath.slice('preset/'.length)
+      const targetFilePath = join(stagingTarget, relative)
+      await mkdir(dirname(targetFilePath), { recursive: true, mode: 0o755 })
+      await writeFile(targetFilePath, data)
+      if (relative.endsWith('.sh') || relative.endsWith('.bash')) {
+        await chmod(targetFilePath, 0o755)
+      }
+    }
+
+    if (signal?.aborted) throw new AbortError()
+
+    const scanResults = await scanFn({ path: tempStagingDir, trust: 'user' }, harnessBase)
+    const scannedPreset = scanResults.find((p) => p.id === targetId)
+    if (!scannedPreset) {
+      throw new Error(`scanRoot failed: preset "${targetId}" could not be loaded from archive.`)
+    }
+    if (scannedPreset.broken !== undefined) {
+      throw new Error(`scanRoot validation failed: ${scannedPreset.broken}`)
+    }
+
+    if (signal?.aborted) throw new AbortError()
+
+    if (existsSync(finalTargetPath)) {
+      throw new Error(`Target directory already exists before final rename: ${finalTargetPath}`)
+    }
+
+    await rename(stagingTarget, finalTargetPath)
+    await rm(tempStagingDir, { recursive: true, force: true }).catch(() => undefined)
+  } catch (err) {
+    if (tempStagingDir) {
+      await rm(tempStagingDir, { recursive: true, force: true }).catch(() => undefined)
+    }
+    if (err instanceof AbortError || signal?.aborted) {
+      return sendJson(res, 499, { error: 'Client closed request.' })
+    }
+    return sendJson(res, 400, { error: err.message })
+  }
+
+  const { manifest } = parsed
+  const responseData = {
+    ok: true,
+    agentPreset: targetId,
+    sourceAgentPreset: manifest.id,
+    name: manifest.name,
+    description: manifest.description,
+    ...(manifest.sourceDshVersion ? { sourceDshVersion: manifest.sourceDshVersion } : {}),
+    fileCount: parsed.fileCount,
+    totalSize: parsed.totalSize,
+    conflict: false,
+    warnings: parsed.warnings,
+    installed: true,
     manifest: {
       id: targetId,
       originalId: manifest.id,
