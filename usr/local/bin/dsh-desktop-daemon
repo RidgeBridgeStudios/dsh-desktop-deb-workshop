@@ -52,11 +52,5 @@ EOF
     fi
 fi
 
-# Fallback node binary if /usr/bin/node does not exist
-NODE_BIN="/usr/bin/node"
-if [ ! -x "$NODE_BIN" ]; then
-    NODE_BIN="$(command -v node 2>/dev/null || echo /usr/bin/node)"
-fi
-
 # Critical execution line: --expose-internals passed directly to node binary
-exec "$NODE_BIN" --expose-internals "$DSH_ENTRY" --profile default --no-open
+exec /usr/bin/node --expose-internals "$DSH_ENTRY" --profile default

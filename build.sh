@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_NAME="dsh-desktop"
 PACKAGE_VERSION="1.0.0"
-PACKAGE_ARCH="amd64"
+PACKAGE_ARCH="$(dpkg-architecture -qDEB_HOST_ARCH)"
 PACKAGE_FULLNAME="${PACKAGE_NAME}_${PACKAGE_VERSION}_${PACKAGE_ARCH}"
 DEB_FILE="${SCRIPT_DIR}/${PACKAGE_FULLNAME}.deb"
 BUILD_DIR="${SCRIPT_DIR}/build"
@@ -18,6 +18,16 @@ MISSING_TOOLS=0
 
 if ! command -v dpkg-deb >/dev/null 2>&1; then
     echo "Error: 'dpkg-deb' is required but not installed. Install with: sudo apt install -y dpkg" >&2
+    MISSING_TOOLS=1
+fi
+
+if ! command -v dpkg-architecture >/dev/null 2>&1; then
+    echo "Error: 'dpkg-architecture' is required but not installed. Install with: sudo apt install -y dpkg-dev" >&2
+    MISSING_TOOLS=1
+fi
+
+if ! command -v convert >/dev/null 2>&1; then
+    echo "Error: 'convert' (ImageMagick) is required to generate icons. Install with: sudo apt install -y imagemagick" >&2
     MISSING_TOOLS=1
 fi
 
@@ -38,13 +48,26 @@ if [ "$MISSING_TOOLS" -ne 0 ]; then
 fi
 
 # Ensure PNG icons are up to date with SVG
-if [ -f "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" ] && command -v convert >/dev/null 2>&1; then
-    mkdir -p "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps"
-    mkdir -p "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps"
-    convert -background none -resize 128x128 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps/dsh-desktop.png" 2>/dev/null || true
-    convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/dsh-desktop/tray-icon.png" 2>/dev/null || true
-    convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps/dsh-desktop.png" 2>/dev/null || true
+if [ ! -f "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" ]; then
+    echo "Error: '${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg' is missing." >&2
+    exit 1
 fi
+mkdir -p "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps"
+mkdir -p "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps"
+convert -background none -resize 128x128 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps/dsh-desktop.png"
+convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/dsh-desktop/tray-icon.png"
+convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps/dsh-desktop.png"
+
+for icon in \
+    "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" \
+    "${SCRIPT_DIR}/usr/share/dsh-desktop/tray-icon.png" \
+    "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps/dsh-desktop.png" \
+    "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps/dsh-desktop.png"; do
+    if [ ! -f "$icon" ]; then
+        echo "Error: Required icon '$icon' was not generated or is missing." >&2
+        exit 1
+    fi
+done
 
 # 2. Assemble the staging tree
 echo "[2/6] Assembling package staging directory..."
@@ -57,6 +80,7 @@ mkdir -p "${STAGING_DIR}/usr/share/doc/${PACKAGE_NAME}"
 
 # Copy Debian maintainer metadata and scripts
 cp -a "${SCRIPT_DIR}/debian/control" "${STAGING_DIR}/DEBIAN/control"
+sed -i "s/^Architecture:.*/Architecture: ${PACKAGE_ARCH}/" "${STAGING_DIR}/DEBIAN/control"
 [ -f "${SCRIPT_DIR}/debian/postinst" ] && cp -a "${SCRIPT_DIR}/debian/postinst" "${STAGING_DIR}/DEBIAN/postinst"
 [ -f "${SCRIPT_DIR}/debian/prerm" ]    && cp -a "${SCRIPT_DIR}/debian/prerm"    "${STAGING_DIR}/DEBIAN/prerm"
 [ -f "${SCRIPT_DIR}/debian/postrm" ]   && cp -a "${SCRIPT_DIR}/debian/postrm"   "${STAGING_DIR}/DEBIAN/postrm"
@@ -113,7 +137,7 @@ fi
 # 5. Run lintian if available
 echo "[5/6] Running lintian validation..."
 if [ "$HAS_LINTIAN" -eq 1 ]; then
-    lintian --no-tag-display-limit "$DEB_FILE" || true
+    lintian --fail-on error --no-tag-display-limit "$DEB_FILE"
 else
     echo "Notice: lintian skipped (not installed)."
 fi

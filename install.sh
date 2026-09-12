@@ -94,6 +94,41 @@ else
             exit 1
         fi
     fi
+
+    echo "Verifying package checksum (SHA256)..."
+    ACTUAL_SHA256=$(sha256sum "$DEB_DEST" | cut -d' ' -f1)
+
+    EXPECTED_SHA256=""
+    if curl -sLf "${DOWNLOAD_URL}.sha256" -o "${WORK_DIR}/${DEB_NAME}.sha256" 2>/dev/null; then
+        EXPECTED_SHA256=$(awk '{print $1}' "${WORK_DIR}/${DEB_NAME}.sha256" | head -n 1)
+    fi
+
+    if [ -z "$EXPECTED_SHA256" ]; then
+        RELEASE_JSON=$(curl -s "https://api.github.com/repos/${REPO}/releases/tags/v${VERSION}" 2>/dev/null || true)
+        if [ -n "$RELEASE_JSON" ]; then
+            EXPECTED_SHA256=$(echo "$RELEASE_JSON" | grep -oE '"digest":\s*"sha256:[a-f0-9]{64}"' | cut -d: -f3 | tr -d '"' | head -n 1 || true)
+            if [ -z "$EXPECTED_SHA256" ]; then
+                EXPECTED_SHA256=$(echo "$RELEASE_JSON" | grep -E "$DEB_NAME" | grep -oE '[a-f0-9]{64}' | head -n 1 || true)
+            fi
+        fi
+    fi
+
+    if [ -z "$EXPECTED_SHA256" ] && [ "$VERSION" = "1.0.0" ]; then
+        EXPECTED_SHA256="9f7f96fecdb69e440177aaf0ebeecbf1eb18ec5ff47de2867c26ac8f346dbb51"
+    fi
+
+    if [ -n "$EXPECTED_SHA256" ]; then
+        if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "Error: SHA256 checksum verification failed for ${DEB_NAME}!" >&2
+            echo "  Expected: ${EXPECTED_SHA256}" >&2
+            echo "  Actual:   ${ACTUAL_SHA256}" >&2
+            exit 1
+        fi
+        echo "SHA256 checksum verified: ${ACTUAL_SHA256}"
+    else
+        echo "Error: Could not retrieve expected SHA256 checksum for verification." >&2
+        exit 1
+    fi
 fi
 
 # 6. Install package with apt
