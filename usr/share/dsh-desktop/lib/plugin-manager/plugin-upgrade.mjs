@@ -7,7 +7,7 @@ function errorText(error) {
  * NORMAL-profile start that reaches the ready signal; Safe Mode never counts.
  */
 export async function upgradePlugin(options) {
-  const { pluginName, targetVersion, install, publish, verifyNormalBoot, revert } = options
+  const { pluginName, targetVersion, install, publish, verifyNormalBoot } = options
   try {
     await install({ pluginName, targetVersion })
     if (publish !== undefined) await publish({ pluginName, targetVersion })
@@ -23,14 +23,9 @@ export async function upgradePlugin(options) {
   }
 
   if (verified !== true) {
-    if (revert !== undefined) {
-      try {
-        await revert({ pluginName, targetVersion })
-      } catch {
-        // Keep the unverified state regardless; the immutable generation and
-        // any prior generation remain on disk.
-      }
-    }
+    // Reference behavior (a): do not auto-revert the projection.
+    // The installed version remains in place, marked unverified and offered
+    // again in recovery on next launch.
     return { ok: false, status: 'unverified', pluginName, targetVersion, offeredAgain: true }
   }
 

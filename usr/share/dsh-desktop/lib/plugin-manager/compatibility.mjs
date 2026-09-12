@@ -98,12 +98,20 @@ export function satisfiesRange(version, range) {
   })
 }
 
-export function inferRuntimeCompatibility(manifest, runtimeVersion) {
+export const DEFAULT_HOST_CORDIS_VERSION = '4.0.2'
+
+export function inferRuntimeCompatibility(manifest, runtimeVersion, options = {}) {
+  const { cordisVersion = DEFAULT_HOST_CORDIS_VERSION } = options
   const peers = manifest?.peerDependencies ?? {}
   for (const [packageName, range] of Object.entries(peers)) {
-    if (!packageName.startsWith('@deepseek-ai/') || packageName === '@deepseek-ai/cordis') continue
-    if (typeof range === 'string' && !satisfiesRange(runtimeVersion, range)) {
-      return { compatible: false, reason: `Declares peer ${packageName} (${range}), incompatible with runtime ${runtimeVersion}` }
+    if (!packageName.startsWith('@deepseek-ai/')) continue
+    if (typeof range !== 'string') continue
+    const targetVersion = packageName === '@deepseek-ai/cordis' ? cordisVersion : runtimeVersion
+    if (!satisfiesRange(targetVersion, range)) {
+      return {
+        compatible: false,
+        reason: `Declares peer ${packageName} (${range}), incompatible with runtime ${targetVersion}`
+      }
     }
   }
 
@@ -128,7 +136,7 @@ export function inferRuntimeCompatibility(manifest, runtimeVersion) {
   return { compatible: true }
 }
 
-export function selectCompatibleUpgrade(metadata, installedVersion, runtimeVersion) {
+export function selectCompatibleUpgrade(metadata, installedVersion, runtimeVersion, options = {}) {
   const latest = metadata?.['dist-tags']?.latest
   const installed = parseSemver(installedVersion)
   if (typeof latest !== 'string' || parseSemver(latest) === null || installed === null) {
@@ -148,7 +156,7 @@ export function selectCompatibleUpgrade(metadata, installedVersion, runtimeVersi
     .sort((a, b) => compareSemver(b.version, a.version))
 
   for (const manifest of candidates) {
-    if (inferRuntimeCompatibility(manifest, runtimeVersion).compatible) {
+    if (inferRuntimeCompatibility(manifest, runtimeVersion, options).compatible) {
       return { status: 'upgrade', version: manifest.version, manifest }
     }
   }
@@ -157,14 +165,14 @@ export function selectCompatibleUpgrade(metadata, installedVersion, runtimeVersi
     const latestManifest = metadata.versions?.[latest]
     const reason = latestManifest === undefined
       ? undefined
-      : inferRuntimeCompatibility(latestManifest, runtimeVersion).reason
+      : inferRuntimeCompatibility(latestManifest, runtimeVersion, options).reason
     return { status: 'latest-anyway', version: latest, reason }
   }
   return { status: 'none' }
 }
 
 export function evaluatePluginUpgrade(options = {}) {
-  const { metadata, installedVersion, runtimeVersion, hasLocalIssue = false } = options
+  const { metadata, installedVersion, runtimeVersion, hasLocalIssue = false, cordisVersion } = options
   if (metadata === undefined || metadata === null) {
     return { healthStatus: 'check-failed', upgradeReady: false, label: translate('en', 'statusFailed') }
   }
@@ -172,7 +180,7 @@ export function evaluatePluginUpgrade(options = {}) {
     return { healthStatus: 'check-failed', upgradeReady: false, label: translate('en', 'statusFailed') }
   }
 
-  const selection = selectCompatibleUpgrade(metadata, installedVersion, runtimeVersion)
+  const selection = selectCompatibleUpgrade(metadata, installedVersion, runtimeVersion, { cordisVersion })
   const latest = metadata?.['dist-tags']?.latest
 
   if (selection.status === 'upgrade') {

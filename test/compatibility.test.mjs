@@ -39,8 +39,8 @@ test('evaluates comparators and ranges', () => {
 test('infers runtime compatibility from peers, engines, minVersion and removed deps', () => {
   const runtime = '0.1.5-rc.1'
   assert.equal(inferRuntimeCompatibility({ peerDependencies: { '@deepseek-ai/dsh': '^0.1.5-0' } }, runtime).compatible, true)
-  assert.equal(inferRuntimeCompatibility({ peerDependencies: { '@deepseek-ai/dsh': '^0.2.0' } }, runtime).compatible, false)
-  assert.equal(inferRuntimeCompatibility({ peerDependencies: { '@deepseek-ai/cordis': '^9.0.0' } }, runtime).compatible, true)
+  assert.equal(inferRuntimeCompatibility({ peerDependencies: { '@deepseek-ai/cordis': '^4.0.0' } }, runtime).compatible, true)
+  assert.equal(inferRuntimeCompatibility({ peerDependencies: { '@deepseek-ai/cordis': '^5.0.0' } }, runtime).compatible, false)
   assert.equal(inferRuntimeCompatibility({ engines: { dsh: '>=0.2.0' } }, runtime).compatible, false)
   assert.equal(inferRuntimeCompatibility({ dsh: { minVersion: '0.2.0' } }, runtime).compatible, false)
   assert.equal(

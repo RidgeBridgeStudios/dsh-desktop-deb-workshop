@@ -94,11 +94,17 @@ export function resolveStartupFailureOwners(candidates, failures, excludedPlugin
   const configured = new Set(candidates.map((candidate) => candidate.name))
   const owners = new Set()
   for (const failure of failures) {
-    const name = failure?.owner?.packageName
-    if (typeof name !== 'string') continue
-    if (!configured.has(name)) continue
-    if (excludedPlugins.includes(name)) continue
-    owners.add(name)
+    const ownerName = failure?.owner?.packageName
+    if (typeof ownerName === 'string' && configured.has(ownerName)) {
+      if (!excludedPlugins.includes(ownerName)) owners.add(ownerName)
+      continue
+    }
+    // Path 1: failure directly names a configured third-party root plugin
+    const directName = failure?.packageName
+    if (typeof directName === 'string' && configured.has(directName)) {
+      if (!excludedPlugins.includes(directName)) owners.add(directName)
+      continue
+    }
   }
   return [...owners].sort()
 }
@@ -116,13 +122,14 @@ export function detectPluginRecovery(options = {}) {
   } = options
 
   if (startupFailures.length > 0) {
-    const provenance = startupFailures.some(
+    const plugins = resolveStartupFailureOwners(candidates, startupFailures, excludedPlugins)
+    const provenance = plugins.length > 0 || startupFailures.some(
       (failure) => failure?.owner !== undefined || (Array.isArray(failure?.chain) && failure.chain.length > 0)
     )
     return {
       source: 'structured',
       provenance,
-      plugins: resolveStartupFailureOwners(candidates, startupFailures, excludedPlugins),
+      plugins,
       logs
     }
   }

@@ -137,3 +137,29 @@ test('structured owners are restricted to configured roots and exclusions', () =
   assert.deepEqual(resolveStartupFailureOwners(candidates, failures), ['plugin-a', 'plugin-b'])
   assert.deepEqual(resolveStartupFailureOwners(candidates, failures, ['plugin-a']), ['plugin-b'])
 })
+
+test('path 1: structured failure directly naming a root plugin attributes via path 1', () => {
+  const candidates = [candidate('foo'), candidate('bar')]
+  const failures = [{ packageName: 'foo', owner: undefined, chain: [] }]
+  const result = detectPluginRecovery({
+    candidates,
+    startupFailures: failures,
+    logs: []
+  })
+  assert.equal(result.source, 'structured')
+  assert.equal(result.provenance, true)
+  assert.deepEqual(result.plugins, ['foo'])
+})
+
+test('structured report with no candidates discards log heuristics', () => {
+  const candidates = [candidate('plugin-a'), candidate('plugin-b')]
+  const failures = [{ packageName: 'unrelated-leaf', owner: undefined, chain: [] }]
+  const result = detectPluginRecovery({
+    candidates,
+    startupFailures: failures,
+    logs: ['plugin-a failed horribly']
+  })
+  assert.equal(result.source, 'structured')
+  assert.equal(result.provenance, false)
+  assert.deepEqual(result.plugins, [])
+})

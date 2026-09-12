@@ -17,19 +17,16 @@ test('an upgrade is only successful after a normal-profile verification', async 
   assert.deepEqual(verified, { ok: true, status: 'verified', pluginName: 'plugin-a', targetVersion: '2.0.0' })
 })
 
-test('a boot that never reaches ready leaves the upgrade unverified and offered again', async () => {
-  let reverted = false
+test('a boot that never reaches ready leaves the upgrade unverified and offered again (behavior a, no auto-revert)', async () => {
   const result = await upgradePlugin({
     pluginName: 'plugin-a',
     targetVersion: '2.0.0',
     install: async () => undefined,
-    verifyNormalBoot: async () => false,
-    revert: async () => { reverted = true }
+    verifyNormalBoot: async () => false
   })
   assert.equal(result.ok, false)
   assert.equal(result.status, 'unverified')
   assert.equal(result.offeredAgain, true)
-  assert.equal(reverted, true)
 })
 
 test('an install failure is reported before any verification', async () => {

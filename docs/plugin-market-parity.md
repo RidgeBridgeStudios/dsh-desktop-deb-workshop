@@ -728,7 +728,9 @@ prereleases for stable installs, and any version failing a peer range,
 the newest compatible. Empty set with `latest > installed` returns the
 **`latest-anyway` sentinel** (a distinct, warned action) — never an empty result
 and never a silent fallback. Pre-release installs accept prerelease candidates;
-stable installs do not. `@deepseek-ai/cordis` is exempt from peer checks.
+stable installs do not. Peer dependencies starting with `@deepseek-ai/` are
+checked against runtime version, except `@deepseek-ai/cordis` which is
+validated against the host's actual cordis version (`4.0.2`).
 Rules and selections are tested one per rule, including newer-incompatible →
 intermediate, no-compatible → sentinel, deprecated skipped, prerelease/stable
 asymmetry, and each peer/engine/minVersion/removed-dep rejection.
@@ -737,8 +739,9 @@ asymmetry, and each peer/engine/minVersion/removed-dep rejection.
 
 `upgradePlugin` installs, publishes, then requires a NORMAL-profile start to
 reach the ready signal. Failure (or a false return) yields
-`status: 'unverified'`, `offeredAgain: true`; an injected `revert` is called and
-the plugin returns to the candidate list with a fresh failure record. Install
+`status: 'unverified'`, `offeredAgain: true`. Following reference behavior (a),
+no auto-revert is executed: the new version remains projected on disk and the
+plugin is offered again in recovery for user-directed resolution. Install
 failure is reported before verification. Safe Mode never counts.
 
 ### C. Batch semantics
