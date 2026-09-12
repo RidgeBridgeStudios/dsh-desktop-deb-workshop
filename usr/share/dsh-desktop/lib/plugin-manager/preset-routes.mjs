@@ -93,13 +93,17 @@ export function resolveScanRootFunction(scanRootFn, home = defaultDshHome()) {
   return null
 }
 
+export function defaultPresetRoots(home = defaultDshHome()) {
+  return [{ path: join(home, '.dsh/agent-presets'), trust: 'user' }]
+}
+
 export async function handlePresetExport(req, res, options = {}) {
   const {
-    roots,
     signal = req.signal,
     sourceDshVersion = '0.1.5-rc.1',
     scanRootFn,
     dshHome: home = defaultDshHome(),
+    roots = defaultPresetRoots(home),
     harnessBase = defaultHarnessBase(home)
   } = options
 
@@ -248,11 +252,11 @@ export function findUserWritableRoot(roots) {
 
 export async function handlePresetImportPreview(req, res, options = {}) {
   const {
-    roots,
     signal = req.signal,
     scanRootFn,
     bodyBuffer: injectedBuffer,
     dshHome: home = defaultDshHome(),
+    roots = defaultPresetRoots(home),
     harnessBase = defaultHarnessBase(home)
   } = options
 
@@ -347,11 +351,11 @@ export async function handlePresetImportPreview(req, res, options = {}) {
 
 export async function handlePresetImportInstall(req, res, options = {}) {
   const {
-    roots,
     signal = req.signal,
     scanRootFn,
     bodyBuffer: injectedBuffer,
     dshHome: home = defaultDshHome(),
+    roots = defaultPresetRoots(home),
     harnessBase = defaultHarnessBase(home)
   } = options
 
@@ -500,6 +504,10 @@ export async function handlePresetImportInstall(req, res, options = {}) {
 }
 
 export function createPresetRequestHandler(options = {}) {
+  const home = options.dshHome ?? defaultDshHome()
+  const roots = options.roots ?? defaultPresetRoots(home)
+  const resolvedOptions = { dshHome: home, roots, ...options }
+
   return async function handlePresetRequest(req, res) {
     let url
     try {
@@ -511,7 +519,7 @@ export function createPresetRequestHandler(options = {}) {
     if (url.pathname === PRESET_EXPORT_PATH) {
       if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed.' })
       if (!isTrustedRequest(req, false)) return sendJson(res, 403, { error: 'Request rejected.' })
-      return handlePresetExport(req, res, options)
+      return handlePresetExport(req, res, resolvedOptions)
     }
 
     if (url.pathname === PRESET_IMPORT_PATH) {
@@ -519,9 +527,9 @@ export function createPresetRequestHandler(options = {}) {
       if (!isTrustedRequest(req, true)) return sendJson(res, 403, { error: 'Request rejected.' })
       const install = url.searchParams.get('install') === '1'
       if (install) {
-        return handlePresetImportInstall(req, res, options)
+        return handlePresetImportInstall(req, res, resolvedOptions)
       }
-      return handlePresetImportPreview(req, res, options)
+      return handlePresetImportPreview(req, res, resolvedOptions)
     }
 
     return null

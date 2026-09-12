@@ -93,10 +93,11 @@ test('invariant 9: IPC market install/uninstall routes use withDaemonStopped', a
 
   registerIpcHandlers(mockIpc, supervisor)
 
-  await handlers['market:install']({})
+  const trustedEvent = { senderFrame: { url: 'http://127.0.0.1:3080' } }
+  await handlers['market:install'](trustedEvent)
   assert.deepEqual(stoppedMutations, ['wrapped', 'installMarketShared'])
 
   stoppedMutations.length = 0
-  await handlers['market:uninstall']({})
+  await handlers['market:uninstall'](trustedEvent)
   assert.deepEqual(stoppedMutations, ['wrapped', 'uninstallMarketShared'])
 })

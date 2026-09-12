@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Standard environment path
-export PATH="/usr/local/bin:/usr/bin:/bin:${HOME:-/root}/.local/bin:${PATH:-}"
+export PATH="${HOME:-/root}/.dsh/.desktop-bin:/usr/local/bin:/usr/bin:/bin:${HOME:-/root}/.local/bin:${PATH:-}"
 
 # Locate DSH entry script
 DSH_ENTRY="/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
@@ -19,7 +19,7 @@ fi
 
 if [ ! -f "$DSH_ENTRY" ]; then
     echo "Error: DeepSeek Harness entry script not found at $DSH_ENTRY" >&2
-    echo "Please ensure @deepseek-ai/dsh is installed globally: sudo npm install -g @deepseek-ai/dsh@latest" >&2
+    echo "Please ensure @deepseek-ai/dsh is installed globally: sudo npm install -g @deepseek-ai/dsh@0.1.5-rc.1" >&2
     exit 1
 fi
 
@@ -47,9 +47,34 @@ if [ ! -f "$PROFILE_DIR/package.json" ]; then
   }
 }
 EOF
+fi
+if [ ! -d "$PROFILE_DIR/node_modules" ]; then
     if command -v pnpm >/dev/null 2>&1; then
         (cd "$PROFILE_DIR" && pnpm install --silent) || true
     fi
+fi
+
+export NODE_PATH="${HOME:-/root}/.dsh/node_modules:${HOME:-/root}/.dsh/profiles/node_modules:$(dirname "$(dirname "$DSH_ENTRY")")/..:/usr/local/lib/node_modules:/usr/lib/node_modules:/usr/share/dsh-desktop/node_modules${NODE_PATH:+:$NODE_PATH}"
+
+# Locate version module
+VERSION_MOD="/usr/share/dsh-desktop/lib/plugin-manager/dsh-version.mjs"
+if [ ! -f "$VERSION_MOD" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    VERSION_MOD="$SCRIPT_DIR/../../share/dsh-desktop/lib/plugin-manager/dsh-version.mjs"
+fi
+
+# Validate running DSH version against supported range before exec
+if ! /usr/bin/node -e "import('$VERSION_MOD').then(m => {
+  let pkg;
+  try {
+    const custom = require(process.env.HOME + '/.dsh/package.json');
+    if (custom && typeof custom.version === 'string') pkg = custom;
+  } catch {}
+  if (!pkg) pkg = require('@deepseek-ai/dsh/package.json');
+  m.assertSupportedDsh(pkg.version);
+})"; then
+    echo "Error: DeepSeek Harness version is outside supported range (~0.1.5-0)" >&2
+    exit 1
 fi
 
 # Critical execution line: --expose-internals passed directly to node binary

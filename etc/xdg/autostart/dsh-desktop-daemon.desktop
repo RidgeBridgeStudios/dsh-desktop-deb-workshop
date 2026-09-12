@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=DSH Desktop Daemon
-Comment=DeepSeek Harness background service autostart
-Exec=/usr/local/bin/dsh-desktop-daemon
-Terminal=false
-Hidden=false
-NoDisplay=true
-X-GNOME-Autostart-enabled=true

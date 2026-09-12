@@ -36,6 +36,7 @@ export function buildRecoveryViewModel(options = {}) {
         })
       : undefined,
     retryCheckLabel: checks.length > 0 && !hasActions ? t('recoveryRetryChecks') : undefined,
+    retryLabel: t('recoveryRetry'),
     upgradeLabel: t('recoveryUpgrade'),
     upgradeBusyLabel: t('recoveryUpgrading'),
     uninstallLabel: t('recoveryUninstall'),

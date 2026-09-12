@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { dshHome as defaultDshHome, LIVE_PROFILE } from '../../lib/plugin-manager/paths.mjs'
 import {
   MARKET_PACKAGE,
@@ -11,6 +12,15 @@ import {
   uninstallMarketShared
 } from '../../lib/plugin-manager/market-backend.mjs'
 import { SHARED_TREE_ONLY } from '../../lib/plugin-manager/registry.mjs'
+import {
+  assertSupportedDsh,
+  resolveRunningDshVersion
+} from '../../lib/plugin-manager/dsh-version.mjs'
+import {
+  createPresetRequestHandler,
+  PRESET_EXPORT_PATH,
+  PRESET_IMPORT_PATH
+} from '../../lib/plugin-manager/preset-routes.mjs'
 
 if (!SHARED_TREE_ONLY.has(MARKET_PACKAGE)) {
   throw new Error(`The market package ${MARKET_PACKAGE} must stay in the shared tree.`)
@@ -63,6 +73,7 @@ export function createMarketService(options = {}) {
     home = defaultDshHome(),
     profile = LIVE_PROFILE,
     recommendedVersion = RECOMMENDED_MARKET_VERSION,
+    resolveDshVersion = () => resolveRunningDshVersion({ home, dshVersion: options.dshVersion }),
     readState = () => readMarketState(home, profile),
     installShared = (context) => installMarketShared({
       dshHome: home,
@@ -134,6 +145,15 @@ export function createMarketService(options = {}) {
 
   async function install() {
     if (operation !== null) return { kind: 'busy' }
+    const currentVersion = resolveDshVersion()
+    if (currentVersion !== null && currentVersion !== undefined) {
+      try {
+        assertSupportedDsh(currentVersion)
+      } catch (failure) {
+        error = failure instanceof Error ? failure.message : String(failure)
+        return { kind: 'error', detail: error }
+      }
+    }
     let state
     try {
       state = await readState()
@@ -210,6 +230,14 @@ export function apply(ctx, options = {}) {
   const service = options.service ?? createMarketService(options)
   const handler = createMarketRequestHandler(service)
 
+  const home = options.home ?? options.dshHome ?? defaultDshHome()
+  const roots = options.roots ?? options.presetRoots ?? [{ path: join(home, '.dsh/agent-presets'), trust: 'user' }]
+  const presetHandler = options.presetHandler ?? createPresetRequestHandler({
+    dshHome: home,
+    roots,
+    ...options
+  })
+
   const registerRoutes = (webServer) => {
     webServer.register({
       kind: 'exact',
@@ -233,6 +261,16 @@ export function apply(ctx, options = {}) {
         return sendJson(res, 202, await service.status())
       }
     })
+    webServer.register({
+      kind: 'exact',
+      path: PRESET_EXPORT_PATH,
+      handler: presetHandler
+    })
+    webServer.register({
+      kind: 'exact',
+      path: PRESET_IMPORT_PATH,
+      handler: presetHandler
+    })
   }
 
   if (ctx) {
@@ -249,8 +287,9 @@ export function apply(ctx, options = {}) {
       registerRoutes(ctx.webServer)
     } else if (ctx.webServer && typeof ctx.webServer.use === 'function') {
       ctx.webServer.use(handler)
+      ctx.webServer.use(presetHandler)
     }
   }
 
-  return { service, handler }
+  return { service, handler, presetHandler }
 }

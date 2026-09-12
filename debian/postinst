@@ -46,17 +46,12 @@ EOF
             chown -R "$USER_UID:$USER_GID" "$USER_HOME/.dsh"
             chown -R "$USER_UID:$USER_GID" "$USER_HOME/.local/share/dsh-desktop"
 
-            # 3. Run (cd ~/.dsh/profiles/default && pnpm install --silent) as the invoking user
-            if command -v pnpm >/dev/null 2>&1; then
-                su - "$TARGET_USER" -c "cd \"$DEFAULT_PROFILE_DIR\" && pnpm install --silent" 2>/dev/null || true
-            fi
-
-            # 5. Enable user lingering for the invoking user
+            # 3. Enable user lingering for the invoking user
             if command -v loginctl >/dev/null 2>&1; then
                 loginctl enable-linger "$TARGET_USER" 2>/dev/null || true
             fi
 
-            # 6. Enable and (re)start the user service
+            # 4. Enable and (re)start the user service
             USER_RUNDIR="/run/user/$USER_UID"
             if [ -d "$USER_RUNDIR" ] && command -v systemctl >/dev/null 2>&1; then
                 sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user daemon-reload 2>/dev/null || true
@@ -69,28 +64,11 @@ EOF
                 rm -f "$USER_DESKTOP_ENTRY"
                 su - "$TARGET_USER" -c "update-desktop-database ~/.local/share/applications" 2>/dev/null || true
             fi
+
+            echo "Notice: First launch will complete default profile setup."
         fi
 
-        # Pre-download electron binary if install-electron is available
-        if command -v install-electron >/dev/null 2>&1; then
-            install-electron 2>/dev/null || true
-        fi
-
-        # 4. Link prebuilt sharp binaries
-        # Check standard global npm locations
-        GLOBAL_NM=/usr/local/lib/node_modules
-        if [ ! -d "$GLOBAL_NM/@deepseek-ai/dsh" ] && [ -d "/usr/lib/node_modules/@deepseek-ai/dsh" ]; then
-            GLOBAL_NM=/usr/lib/node_modules
-        fi
-        DSH_NM="$GLOBAL_NM/@deepseek-ai/dsh/node_modules"
-
-        if [ -d "$GLOBAL_NM/@deepseek-ai/dsh" ]; then
-            mkdir -p "$DSH_NM/@img"
-            [ -d "$GLOBAL_NM/sharp" ] && cp -a "$GLOBAL_NM/sharp" "$DSH_NM/" 2>/dev/null || true
-            [ -d "$GLOBAL_NM/@img/sharp-linux-x64" ] && cp -a "$GLOBAL_NM/@img/sharp-linux-x64" "$DSH_NM/@img/" 2>/dev/null || true
-        fi
-
-        # 7. Update the desktop and icon databases
+        # 5. Update the desktop and icon databases
         if command -v update-desktop-database >/dev/null 2>&1; then
             update-desktop-database /usr/share/applications/ || true
         fi

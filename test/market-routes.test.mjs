@@ -23,6 +23,10 @@ import {
   STATUS_PATH,
   UNINSTALL_PATH
 } from '../usr/share/dsh-desktop/lib/plugin-manager/market-constants.mjs'
+import {
+  PRESET_EXPORT_PATH,
+  PRESET_IMPORT_PATH
+} from '../usr/share/dsh-desktop/lib/plugin-manager/preset-routes.mjs'
 import { routePluginSpec } from '../usr/share/dsh-desktop/lib/plugin-manager/market-backend.mjs'
 import { SHARED_TREE_ONLY } from '../usr/share/dsh-desktop/lib/plugin-manager/registry.mjs'
 import { LOCALES, SUPPORTED_LOCALES, translate } from '../usr/share/dsh-desktop/lib/plugin-manager/locales.mjs'
@@ -231,6 +235,8 @@ test('Cordis plugin registration attaches routes to webServer', () => {
   const { service, handler } = apply(mockCtx)
   assert.ok(typeof registeredRoutes[STATUS_PATH]?.handler === 'function')
   assert.ok(typeof registeredRoutes[UNINSTALL_PATH]?.handler === 'function')
+  assert.ok(typeof registeredRoutes[PRESET_EXPORT_PATH]?.handler === 'function')
+  assert.ok(typeof registeredRoutes[PRESET_IMPORT_PATH]?.handler === 'function')
   assert.equal(registeredRoutes[INSTALL_PATH], undefined)
 })
 
@@ -253,6 +259,8 @@ test('Cordis plugin registers exact routes for STATUS and UNINSTALL without regi
 
   const statusRegistration = registered.find((r) => r.path === STATUS_PATH)
   const uninstallRegistration = registered.find((r) => r.path === UNINSTALL_PATH)
+  const exportRegistration = registered.find((r) => r.path === PRESET_EXPORT_PATH)
+  const importRegistration = registered.find((r) => r.path === PRESET_IMPORT_PATH)
   const installRegistration = registered.find((r) => r.path === INSTALL_PATH)
 
   assert.ok(statusRegistration, 'STATUS route must be registered')
@@ -262,6 +270,14 @@ test('Cordis plugin registers exact routes for STATUS and UNINSTALL without regi
   assert.ok(uninstallRegistration, 'UNINSTALL route must be registered')
   assert.equal(uninstallRegistration.kind, 'exact')
   assert.equal(typeof uninstallRegistration.handler, 'function')
+
+  assert.ok(exportRegistration, 'PRESET_EXPORT route must be registered')
+  assert.equal(exportRegistration.kind, 'exact')
+  assert.equal(typeof exportRegistration.handler, 'function')
+
+  assert.ok(importRegistration, 'PRESET_IMPORT route must be registered')
+  assert.equal(importRegistration.kind, 'exact')
+  assert.equal(typeof importRegistration.handler, 'function')
 
   assert.equal(installRegistration, undefined, 'INSTALL route must not be registered')
 })

@@ -6,7 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
-import { exec, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -32,8 +32,42 @@ import {
 } from '../lib/plugin-manager/market-constants.mjs';
 import {
   dshHome as defaultDshHome,
-  LIVE_PROFILE
+  LIVE_PROFILE,
+  profileDirectory
 } from '../lib/plugin-manager/paths.mjs';
+import {
+  uninstallPlugin,
+  upgradePlugin
+} from '../lib/plugin-manager/orchestrator.mjs';
+import {
+  buildRecoveryPlan
+} from '../lib/plugin-manager/recovery.mjs';
+import {
+  configuredProfilePlugins
+} from '../lib/plugin-manager/detection.mjs';
+import {
+  resolveLocale,
+  translate,
+  formatMessage
+} from '../lib/plugin-manager/locales.mjs';
+
+export function detectLocale(electronApp = electron?.app) {
+  if (electronApp && typeof electronApp.getLocale === 'function') {
+    try {
+      const loc = electronApp.getLocale();
+      if (loc) return resolveLocale(loc);
+    } catch {}
+  }
+  return resolveLocale(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || 'en');
+}
+
+export function getSafeModeViewModel(options = {}) {
+  const locale = options.locale || detectLocale();
+  return buildSafeModeViewModel({
+    locale,
+    ...options
+  });
+}
 
 let electron = null;
 try {
@@ -55,6 +89,44 @@ const {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+export const SAFE_PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i;
+const CORE_BUNDLES = new Set(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']);
+
+export function isProhibitedPackage(name) {
+  if (typeof name !== 'string') return true;
+  const lower = name.toLowerCase();
+  return lower.startsWith('@deepseek-ai/') || lower === 'dshmarket' || CORE_BUNDLES.has(lower);
+}
+
+export function assertTrustedSender(event) {
+  const url = event?.senderFrame?.url;
+  if (typeof url !== 'string') {
+    throw new Error('Untrusted IPC sender: missing senderFrame URL');
+  }
+  if (url.startsWith('http://127.0.0.1:') || url.startsWith('http://localhost:')) {
+    return;
+  }
+  if (url.startsWith('file://')) {
+    try {
+      const filePath = path.resolve(fileURLToPath(url));
+      const appDir = path.resolve(__dirname);
+      const relative = path.relative(appDir, filePath);
+      if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+        return;
+      }
+    } catch {}
+  }
+  throw new Error(`Untrusted IPC sender: ${url}`);
+}
+
+export function resolveDaemonBin() {
+  const daemonCandidates = [
+    '/usr/local/bin/dsh-desktop-daemon',
+    path.resolve(__dirname, '../../../usr/local/bin/dsh-desktop-daemon')
+  ];
+  return daemonCandidates.find((p) => fs.existsSync(p)) || daemonCandidates[0];
+}
 
 if (app) {
   app.setName('DSH Desktop');
@@ -152,22 +224,38 @@ export function checkServerReady(urlStr, callback) {
   }
 }
 
-export function executeCommand(cmd) {
+export function executeCommand(file, args = []) {
+  let bin = file;
+  let binArgs = args;
+  if (!Array.isArray(args) || args.length === 0) {
+    if (typeof file === 'string' && file.includes(' ')) {
+      const parts = file.trim().split(/\s+/);
+      bin = parts[0];
+      binArgs = parts.slice(1);
+    } else {
+      binArgs = [];
+    }
+  }
   return new Promise((resolve) => {
-    exec(cmd, (error, stdout, stderr) => {
-      resolve({ error, stdout: (stdout || '').trim(), stderr: (stderr || '').trim() });
+    execFile(bin, binArgs, (error, stdout, stderr) => {
+      resolve({
+        error: error || null,
+        stdout: (stdout || '').trim(),
+        stderr: (stderr || '').trim()
+      });
     });
   });
 }
 
 export async function checkDshStatus() {
-  const systemctlRes = await executeCommand('systemctl --user is-active dsh-desktop.service');
+  const systemctlRes = await executeCommand('systemctl', ['--user', 'is-active', 'dsh-desktop.service']);
   if (systemctlRes.stdout === 'active') {
     dshStatus = { active: true, detail: 'systemd service active' };
     return dshStatus;
   }
 
-  const pgrepRes = await executeCommand("pgrep -f '@deepseek-ai/dsh|dsh-desktop-daemon'");
+  const daemonBin = resolveDaemonBin();
+  const pgrepRes = await executeCommand('pgrep', ['-f', daemonBin]);
   if (pgrepRes.stdout.length > 0) {
     dshStatus = { active: true, detail: 'daemon process active' };
     return dshStatus;
@@ -178,14 +266,30 @@ export async function checkDshStatus() {
 }
 
 export async function stopDshBackend() {
-  await executeCommand('systemctl --user stop dsh-desktop.service');
-  await executeCommand("pkill -f '@deepseek-ai/dsh|dsh-desktop-daemon'");
+  const res = await executeCommand('systemctl', ['--user', 'stop', 'dsh-desktop.service']);
+  const isSystemdUnavailable = Boolean(
+    res.error && (
+      res.error.code === 'ENOENT' ||
+      (typeof res.stderr === 'string' && (
+        res.stderr.includes('Failed to connect to bus') ||
+        res.stderr.includes('not been booted with systemd') ||
+        res.stderr.includes('systemd not found')
+      ))
+    )
+  );
+
+  if (isSystemdUnavailable) {
+    const daemonBin = resolveDaemonBin();
+    if (daemonBin) {
+      await executeCommand('pkill', ['-f', daemonBin]);
+    }
+  }
 }
 
 export async function restartDshBackend(options = {}) {
-  const { stdout } = await executeCommand('systemctl --user is-active dsh-desktop.service');
+  const { stdout } = await executeCommand('systemctl', ['--user', 'is-active', 'dsh-desktop.service']);
   if (stdout === 'active' || stdout === 'activating' || stdout === 'failed') {
-    const restartRes = await executeCommand('systemctl --user restart dsh-desktop.service');
+    const restartRes = await executeCommand('systemctl', ['--user', 'restart', 'dsh-desktop.service']);
     if (!restartRes.error) {
       return true;
     }
@@ -194,13 +298,14 @@ export async function restartDshBackend(options = {}) {
   await stopDshBackend();
   await new Promise((resolve) => setTimeout(resolve, 600));
 
-  const daemonCandidates = [
-    '/usr/local/bin/dsh-desktop-daemon',
-    path.resolve(__dirname, '../../../usr/local/bin/dsh-desktop-daemon')
-  ];
-  const daemonBin = daemonCandidates.find((p) => fs.existsSync(p));
+  const daemonBin = resolveDaemonBin();
 
   if (daemonBin) {
+    const isSafeMode = options.safeMode ?? shouldStartInSafeMode(process.argv);
+    if (isSafeMode) {
+      const ensureSafeModeProfileFn = options.ensureSafeModeProfile || ensureSafeModeProfile;
+      await ensureSafeModeProfileFn(options.dshHome || defaultDshHome());
+    }
     const daemonArgs = buildDaemonArgs(options);
     const logDir = path.join(process.env.HOME || '/tmp', '.local/share/dsh-desktop');
     try {
@@ -224,16 +329,118 @@ export async function restartDshBackend(options = {}) {
   return false;
 }
 
-export function handleStartupFailureText(text) {
+function loadRecoveryCandidatesSync(dshHome, profile = LIVE_PROFILE) {
+  try {
+    const dir = profileDirectory(dshHome, profile);
+    const manifestPath = path.join(dir, 'package.json');
+    if (!fs.existsSync(manifestPath)) return [];
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) || {};
+    const roots = configuredProfilePlugins(manifest);
+    const candidates = [];
+    for (const name of roots) {
+      const rootDir = path.join(dir, 'node_modules', name);
+      let packageManifest = {};
+      try {
+        packageManifest = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8')) || {};
+      } catch {}
+      const patchRelative = packageManifest.dsh?.bundle?.patch;
+      let bundlePatch = '';
+      if (typeof patchRelative === 'string') {
+        try {
+          bundlePatch = fs.readFileSync(path.join(rootDir, patchRelative), 'utf8');
+        } catch {}
+      }
+      const sources = {};
+      const sourceFiles = [
+        'cordis.patch.yml',
+        'index.js',
+        'lib/index.js',
+        'dist/index.js',
+        'client.js',
+        'lib/client.js',
+        'dist/client.js'
+      ];
+      for (const relative of sourceFiles) {
+        try {
+          const filePath = path.join(rootDir, relative);
+          if (fs.existsSync(filePath)) {
+            sources[relative] = fs.readFileSync(filePath, 'utf8');
+          }
+        } catch {}
+      }
+      candidates.push({
+        name,
+        directory: rootDir,
+        version: typeof packageManifest.version === 'string' ? packageManifest.version : undefined,
+        dependencies: packageManifest.dependencies ?? {},
+        optionalDependencies: packageManifest.optionalDependencies ?? {},
+        bundlePatch,
+        sources
+      });
+    }
+    return candidates;
+  } catch {
+    return [];
+  }
+}
+
+export function handleStartupFailureText(text, options = {}) {
   const failures = parsePluginStartupFailures(text);
   if (!failures || failures.length === 0) return null;
   const pluginNames = failures.map((f) => f.packageName).filter(Boolean);
-  return buildRecoveryViewModel({
-    locale: 'en',
-    plugins: pluginNames,
-    structured: true,
-    rawError: failures.map((f) => `${f.packageName}: ${f.message}`).join('\n')
+
+  const home = options.dshHome || defaultDshHome();
+  const profile = options.profile || LIVE_PROFILE;
+
+  let candidates = options.candidates;
+  if (!candidates) {
+    candidates = loadRecoveryCandidatesSync(home, profile);
+  }
+
+  const configuredNames = new Set(candidates.map((c) => c.name));
+  for (const f of failures) {
+    if (f.packageName && !configuredNames.has(f.packageName)) {
+      candidates.push({
+        name: f.packageName,
+        directory: path.join(profileDirectory(home, profile), 'node_modules', f.packageName),
+        dependencies: {},
+        optionalDependencies: {},
+        bundlePatch: '',
+        sources: {}
+      });
+      configuredNames.add(f.packageName);
+    }
+  }
+
+  const logTail = options.logTail || (typeof text === 'string' ? text.trim().split(/\r?\n/) : []);
+  const recoveryPlan = buildRecoveryPlan({
+    candidates,
+    startupFailures: failures,
+    logs: logTail,
+    checks: options.checks || []
   });
+
+  const viewModel = buildRecoveryViewModel({
+    locale: options.locale || detectLocale(),
+    plugins: recoveryPlan.plugins.length > 0 ? recoveryPlan.plugins : pluginNames,
+    structured: recoveryPlan.source === 'structured',
+    rawError: failures.map((f) => `${f.packageName}: ${f.message}`).join('\n'),
+    checks: options.checks || []
+  });
+
+  const planRemovals = recoveryPlan.plan?.removals?.length > 0
+    ? recoveryPlan.plan.removals
+    : [...viewModel.plugins];
+  const planUpgrades = recoveryPlan.plan?.upgrades ?? [];
+
+  viewModel.plan = {
+    ...viewModel.plan,
+    removals: planRemovals,
+    upgrades: planUpgrades
+  };
+  viewModel.recoveryPlan = recoveryPlan;
+
+  return viewModel;
 }
 
 export function checkRecentLogFailures() {
@@ -244,7 +451,7 @@ export function checkRecentLogFailures() {
     const content = fs.readFileSync(logFile, 'utf8');
     const lines = content.trim().split('\n');
     const recent = lines.slice(-50).join('\n');
-    return handleStartupFailureText(recent);
+    return handleStartupFailureText(recent, { logTail: lines.slice(-50) });
   } catch {
     return null;
   }
@@ -270,10 +477,11 @@ export function pollAndLoad() {
         if (failureModel) {
           isPolling = false;
           if (mainWindow && !mainWindow.isDestroyed()) {
+            const locale = detectLocale();
             mainWindow.loadFile(path.join(__dirname, 'recovery.html'));
             mainWindow.webContents.once('did-finish-load', () => {
               mainWindow.webContents.executeJavaScript(
-                `window.setRecoveryModel && window.setRecoveryModel(${JSON.stringify(failureModel)});`
+                `window.__DSH_LOCALE__ = ${JSON.stringify(locale)}; if (typeof window.applyLocale === 'function') window.applyLocale(${JSON.stringify(locale)}); window.setRecoveryModel && window.setRecoveryModel(${JSON.stringify(failureModel)});`
               ).catch(() => {});
             });
           }
@@ -286,8 +494,10 @@ export function pollAndLoad() {
         } else {
           isPolling = false;
           if (mainWindow && !mainWindow.isDestroyed()) {
+            const locale = detectLocale();
+            const timeoutMsg = translate(locale, 'connectionTimeout');
             mainWindow.webContents.executeJavaScript(
-              `window.updateStatus && window.updateStatus("Failed to connect to DeepSeek Harness daemon after 15s. Ensure 'dsh-desktop-daemon' is running.", true);`
+              `window.updateStatus && window.updateStatus(${JSON.stringify(timeoutMsg)}, true);`
             ).catch(() => {});
           }
           checkDshStatus().then(() => updateTrayMenu());
@@ -326,17 +536,24 @@ export function restartDesktopApp() {
 }
 
 export async function restartDsh() {
+  const locale = detectLocale();
+  const t = (key) => translate(locale, key);
   if (Notification && Notification.isSupported()) {
     try {
       new Notification({
         title: 'DSH Desktop',
-        body: 'Restarting DeepSeek Harness backend...'
+        body: t('restartingBackend')
       }).show();
     } catch {}
   }
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.loadFile(path.join(__dirname, 'loading.html'));
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.executeJavaScript(
+        `window.__DSH_LOCALE__ = ${JSON.stringify(locale)}; if (typeof window.applyLocale === 'function') window.applyLocale(${JSON.stringify(locale)});`
+      ).catch(() => {});
+    });
     if (!mainWindow.isVisible()) {
       mainWindow.show();
     }
@@ -349,11 +566,13 @@ export async function restartDsh() {
 }
 
 export async function restartBoth() {
+  const locale = detectLocale();
+  const t = (key) => translate(locale, key);
   if (Notification && Notification.isSupported()) {
     try {
       new Notification({
         title: 'DSH Desktop',
-        body: 'Restarting DeepSeek Harness & Desktop App...'
+        body: t('restartingBoth')
       }).show();
     } catch {}
   }
@@ -419,18 +638,23 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
   const withStoppedFn = supervisor.withDaemonStopped || withDaemonStopped;
   const installMarketFn = supervisor.installMarketShared || installMarketShared;
   const uninstallMarketFn = supervisor.uninstallMarketShared || uninstallMarketShared;
+  const uninstallPluginFn = supervisor.uninstallPlugin || uninstallPlugin;
+  const upgradePluginFn = supervisor.upgradePlugin || upgradePlugin;
   const relaunchSafeModeFn = supervisor.relaunchSafeMode || relaunchSafeMode;
   const exitSafeModeFn = supervisor.exitSafeMode || exitSafeMode;
+  const ensureSafeModeProfileFn = supervisor.ensureSafeModeProfile || ensureSafeModeProfile;
   const resolveDshEntryFn = supervisor.resolveDshEntry || resolveDshEntry;
   const nodeExecutablePath = supervisor.nodeExecutablePath || process.execPath;
   const recommendedVersion = supervisor.recommendedVersion || RECOMMENDED_MARKET_VERSION;
   const home = supervisor.dshHome || defaultDshHome();
 
-  ipc.handle('harness:restart', async () => {
+  ipc.handle('harness:restart', async (event) => {
+    assertTrustedSender(event);
     return restartDshFn();
   });
 
-  ipc.handle('market:install', async (event, options = {}) => {
+  ipc.handle('market:install', async (event) => {
+    assertTrustedSender(event);
     return withStoppedFn(async () => {
       let dshEntryPath;
       try {
@@ -441,13 +665,13 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
         profile: LIVE_PROFILE,
         recommendedVersion,
         dshEntryPath,
-        nodeExecutablePath,
-        ...options
+        nodeExecutablePath
       });
     }, supervisor);
   });
 
-  ipc.handle('market:uninstall', async (event, options = {}) => {
+  ipc.handle('market:uninstall', async (event) => {
+    assertTrustedSender(event);
     return withStoppedFn(async () => {
       let dshEntryPath;
       try {
@@ -457,44 +681,98 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
         dshHome: home,
         profile: LIVE_PROFILE,
         dshEntryPath,
-        nodeExecutablePath,
-        ...options
+        nodeExecutablePath
       });
     }, supervisor);
   });
 
   ipc.handle('recovery:action', async (event, action) => {
+    assertTrustedSender(event);
+
     if (action === 'safe-mode') {
       return relaunchSafeModeFn();
     }
     if (action === 'retry') {
       return restartDshFn();
     }
-    if (typeof action === 'string' && action.startsWith('uninstall:')) {
-      const pkg = action.slice('uninstall:'.length);
-      return withStoppedFn(async () => {
-        const { uninstallPlugin } = await import('../lib/plugin-manager/plugin-removal.mjs');
-        return uninstallPlugin({ dshHome: home, packageName: pkg });
-      }, supervisor);
+    if (typeof action === 'string') {
+      if (action.startsWith('uninstall:')) {
+        const pkg = action.slice('uninstall:'.length);
+        if (!SAFE_PACKAGE_NAME_PATTERN.test(pkg) || isProhibitedPackage(pkg)) {
+          throw new Error(`Invalid or prohibited package: ${pkg}`);
+        }
+        return withStoppedFn(async () => {
+          let dshEntryPath;
+          try {
+            dshEntryPath = resolveDshEntryFn();
+          } catch {}
+          return uninstallPluginFn({
+            dshHome: home,
+            packageName: pkg,
+            profile: LIVE_PROFILE,
+            dshEntryPath,
+            nodeExecutablePath
+          });
+        }, supervisor);
+      }
+
+      if (action.startsWith('upgrade:')) {
+        const spec = action.slice('upgrade:'.length);
+        const atIdx = spec.lastIndexOf('@');
+        const pkg = atIdx > 0 ? spec.slice(0, atIdx) : spec;
+        const targetVersion = atIdx > 0 ? spec.slice(atIdx + 1) : undefined;
+        if (!SAFE_PACKAGE_NAME_PATTERN.test(pkg) || isProhibitedPackage(pkg)) {
+          throw new Error(`Invalid or prohibited package: ${pkg}`);
+        }
+        if (targetVersion !== undefined && !/^[a-z0-9._+-]+$/i.test(targetVersion)) {
+          throw new Error(`Invalid or prohibited target version: ${targetVersion}`);
+        }
+        return withStoppedFn(async () => {
+          let dshEntryPath;
+          try {
+            dshEntryPath = resolveDshEntryFn();
+          } catch {}
+          return upgradePluginFn({
+            dshHome: home,
+            pluginName: pkg,
+            targetVersion,
+            profile: LIVE_PROFILE,
+            dshEntryPath,
+            nodeExecutablePath,
+            restartDaemon: restartDshFn
+          });
+        }, supervisor);
+      }
     }
-    if (typeof action === 'string' && action.startsWith('upgrade:')) {
-      const pkg = action.slice('upgrade:'.length);
-      return withStoppedFn(async () => {
-        const { upgradePlugin } = await import('../lib/plugin-manager/plugin-upgrade.mjs');
-        return upgradePlugin({ dshHome: home, packageName: pkg });
-      }, supervisor);
-    }
-    return { error: 'Unknown recovery action' };
+
+    throw new Error(`Invalid or prohibited recovery action: ${action}`);
   });
 
   ipc.handle('safe-mode:action', async (event, action, selection) => {
+    assertTrustedSender(event);
+
+    if (action !== 'launch' && action !== 'relaunch' && action !== 'exit') {
+      throw new Error(`Invalid safe-mode action: ${action}`);
+    }
+
+    const safeSelection = (Array.isArray(selection) ? selection : (typeof selection === 'string' ? [selection] : []))
+      .filter((pkg) => typeof pkg === 'string' && SAFE_PACKAGE_NAME_PATTERN.test(pkg))
+      .slice(0, 64);
+
     if (action === 'launch' || action === 'relaunch') {
-      return relaunchSafeModeFn(selection);
+      if (action === 'launch') {
+        await ensureSafeModeProfileFn(home);
+      }
+      return relaunchSafeModeFn(safeSelection);
     }
     if (action === 'exit') {
       return exitSafeModeFn();
     }
-    return { ok: true };
+  });
+
+  ipc.handle('safe-mode:model', async (event, options = {}) => {
+    assertTrustedSender(event);
+    return getSafeModeViewModel(options);
   });
 }
 
@@ -544,6 +822,13 @@ export function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'loading.html'));
+  const locale = detectLocale();
+  mainWindow.webContents.once('did-finish-load', () => {
+    mainWindow.webContents.executeJavaScript(
+      `window.__DSH_LOCALE__ = ${JSON.stringify(locale)}; if (typeof window.applyLocale === 'function') window.applyLocale(${JSON.stringify(locale)});`
+    ).catch(() => {});
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
@@ -568,15 +853,16 @@ export function createWindow() {
   setupMenu();
 }
 
-export function updateTrayMenu() {
-  if (!tray || !Menu) return;
+export function buildTrayMenuTemplate(options = {}) {
+  const locale = options.locale || detectLocale();
+  const t = (key) => translate(locale, key);
+  const isWindowVisible = options.isWindowVisible ?? (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
+  const active = options.active ?? dshStatus.active;
+  const statusText = active ? t('trayStatusRunning') : t('trayStatusOffline');
 
-  const isWindowVisible = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
-  const statusText = dshStatus.active ? '● DSH Status: Running' : '○ DSH Status: Offline';
-
-  const contextMenu = Menu.buildFromTemplate([
+  return [
     {
-      label: 'DSH Desktop',
+      label: t('trayDesktop'),
       enabled: false
     },
     {
@@ -585,35 +871,45 @@ export function updateTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: isWindowVisible ? 'Hide to System Tray' : 'Open DSH Desktop',
+      label: isWindowVisible ? t('trayHide') : t('trayOpen'),
       click: () => toggleWindow()
     },
     { type: 'separator' },
     {
-      label: 'Restart DeepSeek Harness (DSH)',
+      label: t('restartDshAction'),
       click: () => restartDsh()
     },
     {
-      label: 'Restart Desktop App',
+      label: t('restartDesktopApp'),
       click: () => restartDesktopApp()
     },
     {
-      label: 'Restart Both (Desktop & DSH)',
+      label: t('restartBoth'),
       click: () => restartBoth()
     },
     { type: 'separator' },
     {
-      label: 'Quit Desktop App',
+      label: t('quitDesktopApp'),
       click: () => quitDesktopApp()
     },
     {
-      label: 'Quit Everything (Desktop & DSH)',
+      label: t('quitEverything'),
       click: () => quitEverything()
     }
-  ]);
+  ];
+}
+
+export function updateTrayMenu() {
+  if (!tray || !Menu) return;
+
+  const locale = detectLocale();
+  const t = (key) => translate(locale, key);
+
+  const contextMenu = Menu.buildFromTemplate(buildTrayMenuTemplate({ locale }));
 
   tray.setContextMenu(contextMenu);
-  tray.setToolTip(`DSH Desktop (${dshStatus.active ? 'Running' : 'Offline'})`);
+  const statusLabel = dshStatus.active ? t('trayRunning') : t('trayOffline');
+  tray.setToolTip(formatMessage(locale, 'trayTooltip', { status: statusLabel }));
 }
 
 export function createTray() {
@@ -641,54 +937,56 @@ export function createTray() {
   }, 5000);
 }
 
-export function setupMenu() {
-  if (!Menu) return;
-  const template = [
+export function buildAppMenuTemplate(options = {}) {
+  const locale = options.locale || detectLocale();
+  const t = (key) => translate(locale, key);
+
+  return [
     {
-      label: 'File',
+      label: t('menuFile'),
       submenu: [
         {
-          label: 'Reload',
+          label: t('menuReload'),
           accelerator: 'CmdOrCtrl+R',
           click: () => mainWindow && mainWindow.webContents.reload()
         },
         {
-          label: 'Force Reload',
+          label: t('menuForceReload'),
           accelerator: 'CmdOrCtrl+Shift+R',
           click: () => mainWindow && mainWindow.webContents.reloadIgnoringCache()
         },
         { type: 'separator' },
         {
-          label: 'Restart DeepSeek Harness (DSH)',
+          label: t('restartDshAction'),
           click: () => restartDsh()
         },
         {
-          label: 'Restart Desktop App',
+          label: t('restartDesktopApp'),
           click: () => restartDesktopApp()
         },
         {
-          label: 'Restart Both (Desktop & DSH)',
+          label: t('restartBoth'),
           click: () => restartBoth()
         },
         { type: 'separator' },
         {
-          label: 'Hide to System Tray',
+          label: t('trayHide'),
           accelerator: 'CmdOrCtrl+W',
           click: () => mainWindow && mainWindow.hide()
         },
         {
-          label: 'Quit Desktop App',
+          label: t('quitDesktopApp'),
           accelerator: 'CmdOrCtrl+Q',
           click: () => quitDesktopApp()
         },
         {
-          label: 'Quit Everything (Desktop & DSH)',
+          label: t('quitEverything'),
           click: () => quitEverything()
         }
       ]
     },
     {
-      label: 'Edit',
+      label: t('menuEdit'),
       submenu: [
         { role: 'undo' },
         { role: 'redo' },
@@ -700,7 +998,7 @@ export function setupMenu() {
       ]
     },
     {
-      label: 'View',
+      label: t('menuView'),
       submenu: [
         { role: 'resetZoom' },
         { role: 'zoomIn' },
@@ -711,16 +1009,16 @@ export function setupMenu() {
       ]
     },
     {
-      label: 'Help',
+      label: t('menuHelp'),
       submenu: [
         {
-          label: 'DeepSeek Harness Documentation',
+          label: t('menuDocumentation'),
           click: async () => {
             if (shell) await shell.openExternal('https://github.com/deepseek-ai/deepseek-harness');
           }
         },
         {
-          label: 'DSH Desktop Workshop',
+          label: t('menuWorkshop'),
           click: async () => {
             if (shell) await shell.openExternal('https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop');
           }
@@ -728,13 +1026,19 @@ export function setupMenu() {
       ]
     }
   ];
+}
 
-  const menu = Menu.buildFromTemplate(template);
+export function setupMenu() {
+  if (!Menu) return;
+  const menu = Menu.buildFromTemplate(buildAppMenuTemplate());
   Menu.setApplicationMenu(menu);
 }
 
 if (app) {
   app.whenReady().then(async () => {
+    if (shouldStartInSafeMode(process.argv)) {
+      await ensureSafeModeProfile(defaultDshHome());
+    }
     registerIpcHandlers(ipcMain);
     await checkDshStatus();
     createWindow();

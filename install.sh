@@ -57,8 +57,10 @@ if [ "$NEED_NODE_INSTALL" -eq 1 ]; then
 fi
 
 # 3. Install pnpm, electron, and @deepseek-ai/dsh globally
-echo "[3/6] Installing pnpm, electron, and @deepseek-ai/dsh globally..."
-sudo npm install -g pnpm electron @deepseek-ai/dsh@latest
+# Pinned to supported DSH version matching usr/share/dsh-desktop/lib/plugin-manager/dsh-version.mjs
+SUPPORTED_DSH_VERSION="0.1.5-rc.1"
+echo "[3/6] Installing pnpm, electron, and @deepseek-ai/dsh@${SUPPORTED_DSH_VERSION} globally..."
+sudo npm install -g pnpm electron "@deepseek-ai/dsh@${SUPPORTED_DSH_VERSION}"
 if command -v install-electron >/dev/null 2>&1; then
     echo "Downloading Electron runtime binary..."
     sudo install-electron || true

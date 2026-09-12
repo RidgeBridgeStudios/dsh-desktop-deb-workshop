@@ -26,18 +26,37 @@ test('safe mode IPC: registers action handler and invokes relaunch', async () =>
 
   let relaunched = false
   let exited = false
+  let safeModeEnsured = false
+  let uninstalledPkg = null
+  let upgradedPkg = null
+
   const supervisor = {
     relaunchSafeMode: () => { relaunched = true },
-    exitSafeMode: () => { exited = true }
+    exitSafeMode: () => { exited = true },
+    ensureSafeModeProfile: () => { safeModeEnsured = true },
+    uninstallPlugin: ({ packageName }) => { uninstalledPkg = packageName; return { ok: true } },
+    upgradePlugin: ({ pluginName }) => { upgradedPkg = pluginName; return { ok: true } },
+    withDaemonStopped: (action) => action()
   }
 
   registerIpcHandlers(mockIpc, supervisor)
 
   assert.ok(typeof handlers['safe-mode:action'] === 'function')
+  assert.ok(typeof handlers['recovery:action'] === 'function')
+  assert.ok(typeof handlers['safe-mode:model'] === 'function')
 
-  await handlers['safe-mode:action']({}, 'launch', ['p1'])
+  const trustedEvent = { senderFrame: { url: 'http://127.0.0.1:3080' } }
+
+  await handlers['safe-mode:action'](trustedEvent, 'launch', ['p1'])
+  assert.equal(safeModeEnsured, true)
   assert.equal(relaunched, true)
 
-  await handlers['safe-mode:action']({}, 'exit')
+  await handlers['safe-mode:action'](trustedEvent, 'exit')
   assert.equal(exited, true)
+
+  await handlers['recovery:action'](trustedEvent, 'uninstall:bad-plugin')
+  assert.equal(uninstalledPkg, 'bad-plugin')
+
+  await handlers['recovery:action'](trustedEvent, 'upgrade:nice-plugin@2.0.0')
+  assert.equal(upgradedPkg, 'nice-plugin')
 })

@@ -21,9 +21,20 @@ The upstream `dataelement/dsh-desktop` repository does not ship official Linux b
 3. **Missing `pnpm` Runtime**:
    The harness profile loader dynamically shells out to `pnpm`. The installer and package verify its presence at runtime and install it via `npm` (since `pnpm` is an npm-distributed binary rather than a distro APT package).
 4. **Native `sharp` Binaries**:
-   Running `npm install` directly inside the `@deepseek-ai/dsh` directory triggers HTTP 404 errors due to the unreleased private `@deepseek-ai/dsh-experimental-code-runtime-python` dependency. Instead, `dsh-desktop` installs `@img/sharp-linux-x64` globally and links the prebuilt binaries directly into the DSH node modules tree.
+   Running `npm install` directly inside the `@deepseek-ai/dsh` directory triggers HTTP 404 errors due to the unreleased private `@deepseek-ai/dsh-experimental-code-runtime-python` dependency. `sharp` is not bundled into the Debian package to avoid maintainer-script network calls and directory mutations. `sharp` must be installed by the user's package manager (`sudo npm install -g --os=linux --cpu=x64 sharp @img/sharp-linux-x64`) or by the launcher's first-run setup. The launcher and daemon configure `NODE_PATH` so `sharp` resolves cleanly.
 5. **Profile Initialization Race Condition (`ERR_PNPM_PACKAGE_JSON_EXISTS`)**:
-   Fresh installations lack `~/.dsh/profiles/default`. `dsh-desktop` writes a valid minimal `package.json` first, and then executes `pnpm install --silent` as the regular invoking user, preventing initialization races and permission mismatches.
+   Fresh installations lack `~/.dsh/profiles/default`. `dsh-desktop` creates a valid minimal `package.json` upfront, and first launch completes profile dependency setup, preventing initialization races and permission mismatches. Systemd serves as the single lifecycle owner for the background daemon.
+
+---
+
+## Supported DSH Versions
+
+DSH Desktop enforces a validated compatibility range for the upstream DeepSeek Harness (`@deepseek-ai/dsh`):
+
+- **Supported Range**: `~0.1.5-0` (`>= 0.1.5-rc.1 < 0.2.0`)
+- **Pinned Release**: `0.1.5-rc.1`
+
+The desktop daemon launcher and plugin market installer validate the active runtime version before execution and projection mutations. Incompatible or unknown major versions are refused at startup to prevent projection corruption and runtime crashes.
 
 ---
 
@@ -64,7 +75,7 @@ You are done! You can now:
 The installer will:
 1. Detect your Ubuntu / Zorin OS environment.
 2. Install or upgrade Node.js to Node 22 LTS via NodeSource if needed.
-3. Install `pnpm`, `@deepseek-ai/dsh@latest`, and prebuilt native `sharp` binaries globally.
+3. Install `pnpm`, `@deepseek-ai/dsh@0.1.5-rc.1`, and prebuilt native `sharp` binaries globally.
 4. Download and install the latest `dsh-desktop` Debian package.
 
 ---
@@ -84,7 +95,7 @@ If you prefer building or installing manually, or downloaded the `dsh-desktop_1.
    sudo apt install -y nodejs jq curl ca-certificates procps iproute2
 
    # Install global dependencies
-   sudo npm install -g pnpm @deepseek-ai/dsh@latest
+   sudo npm install -g pnpm @deepseek-ai/dsh@0.1.5-rc.1
    sudo npm install -g --os=linux --cpu=x64 sharp @img/sharp-linux-x64
    ```
 3. **Install `.deb` Package**:
@@ -178,13 +189,17 @@ systemctl --user status dsh-desktop.service
 ```
 
 ### View Live Logs
-View daemon and harness output:
-```bash
-tail -f ~/.local/share/dsh-desktop/dsh.log
-```
-Or view systemd journal output:
+The systemd user service routes logs directly to the systemd journal (see [docs/logging.md](docs/logging.md)):
 ```bash
 journalctl --user -u dsh-desktop.service -f
+```
+Or by syslog tag:
+```bash
+journalctl --user -t dsh-desktop -f
+```
+For standalone or fallback executions outside systemd, output is logged at:
+```bash
+tail -f ~/.local/share/dsh-desktop/dsh.log
 ```
 
 ### Restart Service

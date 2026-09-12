@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Ensure standard PATH
-export PATH="/usr/local/bin:/usr/bin:/bin:${HOME:-/root}/.local/bin:${PATH:-}"
+export PATH="${HOME:-/root}/.dsh/.desktop-bin:/usr/local/bin:/usr/bin:/bin:${HOME:-/root}/.local/bin:${PATH:-}"
+export NODE_PATH="/usr/share/dsh-desktop/node_modules${NODE_PATH:+:$NODE_PATH}"
 
 LOG_DIR="${HOME}/.local/share/dsh-desktop"
 LOG_FILE="${LOG_DIR}/dsh.log"
@@ -62,7 +63,7 @@ if [ ! -f "$DSH_ENTRY" ]; then
     cat << 'EOF' >&2
 Error: DeepSeek Harness entry script was not found.
 Please install @deepseek-ai/dsh globally:
-    sudo npm install -g @deepseek-ai/dsh@latest
+    sudo npm install -g @deepseek-ai/dsh@0.1.5-rc.1
 EOF
     exit 1
 fi
@@ -91,6 +92,8 @@ if [ ! -f "$PROFILE_DIR/package.json" ]; then
   }
 }
 EOF
+fi
+if [ ! -d "$PROFILE_DIR/node_modules" ]; then
     (cd "$PROFILE_DIR" && pnpm install --silent) || true
 fi
 

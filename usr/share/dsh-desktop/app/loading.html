@@ -123,13 +123,43 @@
     <div id="error-box" class="error-box"></div>
   </div>
   <script>
+    // Strategy: Read window.__DSH_LOCALE__ injected from Electron main process via executeJavaScript before/after load.
+    const DICT = {
+      en: {
+        subtitle: 'Sandboxed Desktop Workspace',
+        connecting: 'Connecting to local daemon...',
+        troubleshooter: 'Open Recovery Troubleshooter'
+      },
+      zh: {
+        subtitle: '沙箱桌面工作区',
+        connecting: '正在连接本地守护进程…',
+        troubleshooter: '打开故障恢复疑难解答'
+      }
+    };
+
+    function applyLocale(locale) {
+      const loc = (locale || window.__DSH_LOCALE__ || 'en').startsWith('zh') ? 'zh' : 'en';
+      const strings = DICT[loc] || DICT.en;
+      const subtitleEl = document.querySelector('.subtitle');
+      if (subtitleEl) subtitleEl.textContent = strings.subtitle;
+      const statusEl = document.getElementById('status-text');
+      if (statusEl && !window._statusUpdated) statusEl.textContent = strings.connecting;
+    }
+    window.applyLocale = applyLocale;
+    if (typeof window !== 'undefined' && window.__DSH_LOCALE__) {
+      applyLocale(window.__DSH_LOCALE__);
+    }
+
     // Simple visual update hook
     window.updateStatus = function(text, isError) {
+      window._statusUpdated = true;
       const el = document.getElementById('status-text');
       const errBox = document.getElementById('error-box');
       if (el) el.textContent = text;
       if (isError && errBox) {
-        errBox.innerHTML = `<span>${text}</span><br><a href="recovery.html" style="color: #60a5fa; text-decoration: underline; margin-top: 0.5rem; display: inline-block;">Open Recovery Troubleshooter</a>`;
+        const loc = (window.__DSH_LOCALE__ || 'en').startsWith('zh') ? 'zh' : 'en';
+        const strings = DICT[loc] || DICT.en;
+        errBox.innerHTML = `<span>${text}</span><br><a href="recovery.html" style="color: #60a5fa; text-decoration: underline; margin-top: 0.5rem; display: inline-block;">${strings.troubleshooter}</a>`;
         errBox.style.display = 'block';
       }
     };

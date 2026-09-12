@@ -5,11 +5,13 @@ Priority: optional
 Architecture: amd64
 Depends: nodejs (>= 20.12), npm, curl, ca-certificates, jq, procps, iproute2
 Recommends: electron | brave-browser | google-chrome-stable | chromium-browser | chromium
+Breaks: dsh-desktop (<< 1.0.0)
+XB-Supported-DSH: >= 0.1.5-rc.1 < 0.2.0
 Maintainer: RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>
 Description: Native desktop launcher for DeepSeek Harness
  Wraps the official @deepseek-ai/dsh runtime in a dedicated,
- sandboxed Electron desktop application window. Ships a systemd
- user service, initializes the default profile, links prebuilt
- sharp binaries for linux-x64, and launches Node with the
- --expose-internals flag required by the cordis HMR plugin
- (bypassing the NODE_OPTIONS restriction).
+ sandboxed Electron desktop application window. Supports
+ @deepseek-ai/dsh (>= 0.1.5-rc.1, < 0.2.0). Ships a systemd
+ user service, initializes the default profile, and launches
+ Node with the --expose-internals flag required by the cordis
+ HMR plugin (bypassing the NODE_OPTIONS restriction).

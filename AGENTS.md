@@ -20,8 +20,7 @@ No project-level JS linter configured. `build.sh` runs `lintian` on the output d
 ## Structure
 ```
 debian/                                # Debian control metadata, postinst, prerm, postrm
-docs/                                  # Architecture specifications (plugin-market-parity.md)
-etc/xdg/autostart/                     # Desktop daemon autostart configuration
+docs/                                  # Architecture & logging docs (plugin-market-parity.md, logging.md)
 lib/systemd/user/                      # Systemd user service definition (dsh-desktop.service)
 usr/local/bin/                         # CLI and desktop launcher scripts (dsh-desktop, daemon)
 usr/share/dsh-desktop/app/             # Electron desktop frontend (main.js, preload.cjs, views)

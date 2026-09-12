@@ -131,14 +131,53 @@
   </div>
 
   <script>
+    // Strategy: Read window.__DSH_LOCALE__ injected from Electron main process via executeJavaScript before/after load.
+    const RECOVERY_DICT = {
+      en: {
+        title: 'DeepSeek Harness Recovery',
+        lead: 'A startup failure was detected. A third-party plugin prevented DeepSeek Harness from launching normally.',
+        primary: 'Resolve Issue',
+        safeMode: 'Launch in Safe Mode',
+        retry: 'Retry Startup'
+      },
+      zh: {
+        title: 'DeepSeek Harness 故障恢复',
+        lead: '检测到启动故障。某个第三方插件阻止了 DeepSeek Harness 正常启动。',
+        primary: '解决问题',
+        safeMode: '进入安全模式',
+        retry: '重试启动'
+      }
+    };
+
     let currentModel = null;
+
+    function applyLocale(locale) {
+      const loc = (locale || window.__DSH_LOCALE__ || 'en').startsWith('zh') ? 'zh' : 'en';
+      const strings = RECOVERY_DICT[loc] || RECOVERY_DICT.en;
+      if (!currentModel) {
+        document.getElementById('recovery-title').textContent = strings.title;
+        document.getElementById('recovery-message').textContent = strings.lead;
+        document.getElementById('btn-primary').textContent = strings.primary;
+        document.getElementById('btn-safe').textContent = strings.safeMode;
+        document.getElementById('btn-retry').textContent = strings.retry;
+      }
+    }
+    window.applyLocale = applyLocale;
+    if (typeof window !== 'undefined' && window.__DSH_LOCALE__) {
+      applyLocale(window.__DSH_LOCALE__);
+    }
 
     function renderRecovery(model) {
       currentModel = model;
       if (!model) return;
+      const loc = (window.__DSH_LOCALE__ || model.locale || 'en').startsWith('zh') ? 'zh' : 'en';
+      const strings = RECOVERY_DICT[loc] || RECOVERY_DICT.en;
+
       if (model.title) document.getElementById('recovery-title').textContent = model.title;
       if (model.noCandidate) {
         document.getElementById('recovery-message').textContent = model.noCandidate;
+      } else if (!model.plugins || model.plugins.length === 0) {
+        document.getElementById('recovery-message').textContent = strings.lead;
       }
       const list = document.getElementById('plugin-list');
       if (model.plugins && model.plugins.length > 0) {
@@ -160,6 +199,20 @@
         primaryBtn.style.display = 'inline-block';
       } else {
         primaryBtn.style.display = 'none';
+      }
+
+      const safeBtn = document.getElementById('btn-safe');
+      if (model.safeModeLabel) {
+        safeBtn.textContent = model.safeModeLabel;
+      } else {
+        safeBtn.textContent = strings.safeMode;
+      }
+
+      const retryBtn = document.getElementById('btn-retry');
+      if (model.retryLabel) {
+        retryBtn.textContent = model.retryLabel;
+      } else {
+        retryBtn.textContent = strings.retry;
       }
 
       if (model.rawError) {

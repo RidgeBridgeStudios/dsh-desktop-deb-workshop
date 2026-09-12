@@ -50,3 +50,29 @@ test('preload bridges expose reconciled namespaces and correct IPC channels', as
   assert.equal(calls[calls.length - 1].channel, 'safe-mode:action')
   assert.deepEqual(calls[calls.length - 1].args, ['disable', ['plugin-1', 'plugin-2']])
 })
+
+test('preload bridges handle invocation when renderer supplies options', async () => {
+  const exposed = {}
+  const mockBridge = {
+    exposeInMainWorld(key, api) {
+      exposed[key] = api
+    }
+  }
+
+  const calls = []
+  const mockIpc = {
+    invoke(channel, ...args) {
+      calls.push({ channel, args })
+      return Promise.resolve({ ok: true, channel, args })
+    }
+  }
+
+  registerPreloadBridges(mockBridge, mockIpc)
+
+  // Invoke market installation with hostile options from renderer
+  await exposed.dshDesktop.installMarket({ dshHome: '/tmp/evil' })
+  assert.equal(calls[calls.length - 1].channel, 'market:install')
+
+  await exposed.dshDesktop.uninstallMarket({ dshHome: '/tmp/evil' })
+  assert.equal(calls[calls.length - 1].channel, 'market:uninstall')
+})

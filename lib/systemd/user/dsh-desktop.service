@@ -7,9 +7,10 @@ Type=simple
 ExecStart=/usr/local/bin/dsh-desktop-daemon
 Restart=on-failure
 RestartSec=5
-Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.local/bin
-StandardOutput=append:%h/.local/share/dsh-desktop/dsh.log
-StandardError=append:%h/.local/share/dsh-desktop/dsh.log
+Environment=PATH=%h/.dsh/.desktop-bin:/usr/local/bin:/usr/bin:/bin:%h/.local/bin
+SyslogIdentifier=dsh-desktop
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
