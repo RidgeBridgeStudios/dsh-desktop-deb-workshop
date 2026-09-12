@@ -938,5 +938,45 @@ grep -rnE "TODO|FIXME|HACK|XXX|XXX:" usr/share/dsh-desktop/lib/plugin-manager/
 ```
 **Results**: **0 hits**. No unresolved `TODO`, `FIXME`, `HACK`, or `XXX` tags exist in the plugin-manager tree.
 
+---
+
+## Phase 10 — Electron Wiring, Recovery Page, Client Modules & Invariant 9 Verification (complete)
+
+### 1. Key Architectural Decisions (Approved)
+
+1. **Option A (Reference Cordis Plugin Alignment)**:
+   - Market host routes run as a native Cordis plugin (`usr/share/dsh-desktop/packages/dsh-desktop-market-installer/index.js`) registered on Harness's `ctx.webServer`.
+   - Client UI is loaded via `dsh.client` manifest using `window.__ModuleLoader__.load({ id, factory })` exporting `apply(ctx)` and `inject: ['slots', 'locale']`.
+   - Slot names `'settings.section'` and `'settings.plugins.tab'` are hardcoded literals matching the reference.
+   - Patch overlay `usr/share/dsh-desktop/dsh-desktop.patch.yml` registers `- name: dsh-desktop-market-installer`. Normal supervisor boot composes it via `--patch`; Safe Mode boot strictly omits `--patch`.
+2. **Decision A (Invariant 9 Divergence Approved)**:
+   - Package mutations for market installation diverge from the reference by stopping the runtime daemon before mutation.
+   - *Justification*: Invariant 9 ("All package mutations happen while the runtime is stopped") is a non-negotiable port invariant. Running `pnpm add` rewrites the shared lockfile and risks re-hoisting or modifying dependencies under `.pnpm` that the running daemon may have loaded.
+3. **Decision B (IPC Trigger Approved)**:
+   - Market installation is triggered via Electron IPC channel `'market:install'` exposed as `window.dshDesktop.installMarket()` in preload.
+   - The HTTP `POST /dsh-desktop/market-installer/install` route is deleted; IPC is the sole, authoritative installation path.
+4. **Scope Expansion Approved**:
+   - `usr/share/dsh-desktop/lib/plugin-manager/market-server.mjs` and `market-routes.mjs` are deleted.
+   - Phase 5 tests in `test/market-routes.test.mjs` are rewritten to target the Cordis plugin route handlers directly, preserving the same-origin guard and 409 concurrency assertions.
+5. **Reconciled Preload IPC Surface**:
+   - `window.dshDesktop`: `restartHarness()` (`'harness:restart'`), `uninstallMarket()` (`'market:uninstall'`), `installMarket()` (`'market:install'`).
+   - `window.dshRecovery`: `action(action)` (`'recovery:action'`).
+   - `window.dshSafeMode`: `action(action, selection)` (`'safe-mode:action'`).
+   - Obsolete reference methods (`openInFinder`, `onStartupFailure`) are strictly omitted.
+
+### 2. Verified Invariants & Claim-to-Evidence Audit
+
+| Claim / Invariant | Status | Evidence / Test Suite |
+|---|---|---|
+| **Invariant 9: Runtime stopped during mutation** | VERIFIED | `test/phase10-invariant9.test.mjs`: proves daemon stopped before `pnpm` mutations, restored on completion or throw, wrapped in IPC routes. |
+| **Invariant 10: Upgrade verification on reboot** | VERIFIED | `test/plugin-upgrade.test.mjs`: verifies normal profile boot ready signal transitions upgrade state to verified. |
+| **Cordis Market Installer & Client Module** | VERIFIED | `test/market-routes.test.mjs`: tests route handlers, same-origin mutation guard, and slot registrations. |
+| **Composition & Safe Mode Isolation** | VERIFIED | `test/phase10-composition.test.mjs`: proves normal boot passes `--patch` to compose market installer and Safe Mode boot omits `--patch`. |
+| **Preload IPC Surface** | VERIFIED | `test/phase10-preload-surface.test.mjs`: tests context-isolated bridges for `dshDesktop`, `dshRecovery`, `dshSafeMode`. |
+| **Recovery Page & Dispatch** | VERIFIED | `test/phase10-recovery-path.test.mjs`: verifies `recovery.html` UI hooks and dispatching allowed recovery actions. |
+| **Supervisor Failure Detection** | VERIFIED | `test/phase10-startup-failure.test.mjs`: tests detection and parsing of `[harness-node] plugin failures: ` prefix. |
+| **Safe Mode Relaunch** | VERIFIED | `test/phase10-safemode-relaunch.test.mjs`: tests argument composition and IPC action dispatching for Safe Mode. |
+| **Clean Platform Boundary** | VERIFIED | Zero foreign-platform regex hits across `usr/share/dsh-desktop/lib/plugin-manager/`. |
+
 
 
