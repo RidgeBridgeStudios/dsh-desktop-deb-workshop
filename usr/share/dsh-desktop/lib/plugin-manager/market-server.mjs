@@ -9,9 +9,11 @@ import {
 } from './market-constants.mjs'
 import { CLIENT_HTML, CLIENT_SCRIPT } from './market-client.mjs'
 import { createMarketRequestHandler, sendJson } from './market-routes.mjs'
+import { createPresetRequestHandler, PRESET_EXPORT_PATH, PRESET_IMPORT_PATH } from './preset-routes.mjs'
 import { LOCALES } from './locales.mjs'
 
 export const MARKET_ROUTE_PATHS = [STATUS_PATH, INSTALL_PATH, UNINSTALL_PATH]
+export const PRESET_ROUTE_PATHS = [PRESET_EXPORT_PATH, PRESET_IMPORT_PATH]
 
 function sendText(res, status, contentType, body) {
   res.writeHead(status, {
@@ -24,9 +26,10 @@ function sendText(res, status, contentType, body) {
 
 export function createMarketServer(service, options = {}) {
   const handleRoute = createMarketRequestHandler(service)
+  const handlePreset = options.presetHandler ?? (options.presetOptions ? createPresetRequestHandler(options.presetOptions) : null)
   const html = options.html ?? CLIENT_HTML
   const script = options.script ?? CLIENT_SCRIPT
-  return createServer((req, res) => {
+  return createServer(async (req, res) => {
     let url
     try {
       url = new URL(req.url ?? '/', 'http://127.0.0.1')
@@ -41,6 +44,9 @@ export function createMarketServer(service, options = {}) {
     }
     if (req.method === 'GET' && url.pathname === LOCALES_PATH) {
       return sendJson(res, 200, LOCALES)
+    }
+    if (handlePreset && (url.pathname === PRESET_EXPORT_PATH || url.pathname === PRESET_IMPORT_PATH)) {
+      return handlePreset(req, res)
     }
     return handleRoute(req, res)
   })

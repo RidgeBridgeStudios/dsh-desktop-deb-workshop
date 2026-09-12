@@ -14,7 +14,7 @@ import {
   PRESET_ID_PATTERN
 } from './preset-archive.mjs'
 import { dshHome as defaultDshHome, LIVE_PROFILE, profileDirectory } from './paths.mjs'
-import { sendJson } from './market-routes.mjs'
+import { isTrustedRequest, sendJson } from './market-routes.mjs'
 
 export const PRESET_EXPORT_PATH = '/api/agent-preset.export'
 export const PRESET_IMPORT_PATH = '/api/agent-preset.import'
@@ -493,4 +493,33 @@ export async function handlePresetImportInstall(req, res, options = {}) {
   }
 
   return sendJson(res, 200, responseData)
+}
+
+export function createPresetRequestHandler(options = {}) {
+  return async function handlePresetRequest(req, res) {
+    let url
+    try {
+      url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    } catch {
+      return sendJson(res, 404, { error: 'Not found.' })
+    }
+
+    if (url.pathname === PRESET_EXPORT_PATH) {
+      if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed.' })
+      if (!isTrustedRequest(req, false)) return sendJson(res, 403, { error: 'Request rejected.' })
+      return handlePresetExport(req, res, options)
+    }
+
+    if (url.pathname === PRESET_IMPORT_PATH) {
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' })
+      if (!isTrustedRequest(req, true)) return sendJson(res, 403, { error: 'Request rejected.' })
+      const install = url.searchParams.get('install') === '1'
+      if (install) {
+        return handlePresetImportInstall(req, res, options)
+      }
+      return handlePresetImportPreview(req, res, options)
+    }
+
+    return null
+  }
 }
