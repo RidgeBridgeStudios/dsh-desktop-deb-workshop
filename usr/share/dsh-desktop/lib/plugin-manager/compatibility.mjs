@@ -1,4 +1,8 @@
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
+
 import { translate } from './locales.mjs'
+import { dshHome, installationClosureDir } from './paths.mjs'
 
 const REMOVED_DEPENDENCIES = new Set(['@deepseek-ai/dsh-host-apiproxy'])
 const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/u
@@ -98,10 +102,39 @@ export function satisfiesRange(version, range) {
   })
 }
 
-export const DEFAULT_HOST_CORDIS_VERSION = '4.0.2'
+export function resolveHostCordisVersion(options = {}) {
+  const { home = dshHome() } = options
+  const closure = installationClosureDir(home)
+  try {
+    const req = createRequire(join(closure, 'dummy.js'))
+    const manifest = req('@deepseek-ai/cordis/package.json')
+    if (typeof manifest?.version === 'string') return manifest.version
+  } catch {}
+
+  try {
+    const req = createRequire(import.meta.url)
+    const manifest = req('@deepseek-ai/cordis/package.json')
+    if (typeof manifest?.version === 'string') return manifest.version
+  } catch {}
+
+  throw new Error('Host @deepseek-ai/cordis package is missing from closure; cannot resolve version.')
+}
+
+let cachedHostCordisVersion = null
+
+export function getHostCordisVersion(options = {}) {
+  if (cachedHostCordisVersion === null) {
+    cachedHostCordisVersion = resolveHostCordisVersion(options)
+  }
+  return cachedHostCordisVersion
+}
+
+export function resetHostCordisVersionCache() {
+  cachedHostCordisVersion = null
+}
 
 export function inferRuntimeCompatibility(manifest, runtimeVersion, options = {}) {
-  const { cordisVersion = DEFAULT_HOST_CORDIS_VERSION } = options
+  const cordisVersion = options.cordisVersion ?? getHostCordisVersion(options)
   const peers = manifest?.peerDependencies ?? {}
   for (const [packageName, range] of Object.entries(peers)) {
     if (!packageName.startsWith('@deepseek-ai/')) continue

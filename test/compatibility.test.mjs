@@ -49,6 +49,12 @@ test('infers runtime compatibility from peers, engines, minVersion and removed d
   )
 })
 
+test('cordis peer checking checks against the resolved host version without depending on a constant', () => {
+  const manifest = { peerDependencies: { '@deepseek-ai/cordis': '^4.0.0' } }
+  assert.equal(inferRuntimeCompatibility(manifest, '0.1.5-rc.1', { cordisVersion: '5.0.0' }).compatible, false)
+  assert.equal(inferRuntimeCompatibility(manifest, '0.1.5-rc.1', { cordisVersion: '4.0.2' }).compatible, true)
+})
+
 test('picks the newest compatible version', () => {
   const data = metadata({ '1.1.0': {}, '1.2.0': {}, '2.0.0': {} }, '2.0.0')
   assert.deepEqual(selectCompatibleUpgrade(data, '1.0.0', '0.1.5-rc.1'), {
