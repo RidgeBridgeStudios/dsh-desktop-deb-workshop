@@ -129,7 +129,7 @@
       const errBox = document.getElementById('error-box');
       if (el) el.textContent = text;
       if (isError && errBox) {
-        errBox.textContent = text;
+        errBox.innerHTML = `<span>${text}</span><br><a href="recovery.html" style="color: #60a5fa; text-decoration: underline; margin-top: 0.5rem; display: inline-block;">Open Recovery Troubleshooter</a>`;
         errBox.style.display = 'block';
       }
     };

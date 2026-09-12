@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepSeek Harness — Recovery</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    .card {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 12px;
+      padding: 2.5rem;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(8px);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .icon {
+      width: 48px;
+      height: 48px;
+    }
+    h1 {
+      font-size: 1.5rem;
+      color: #fca5a5;
+    }
+    .lead {
+      color: #cbd5e1;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      margin-bottom: 1.5rem;
+    }
+    .plugin-list {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      list-style: none;
+    }
+    .plugin-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .plugin-item:last-child { border-bottom: none; }
+    .plugin-name { font-weight: 600; color: #f87171; }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+    button {
+      cursor: pointer;
+      padding: 0.6rem 1.2rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: background 0.15s ease, border-color 0.15s ease;
+      border: 1px solid transparent;
+    }
+    .btn-primary {
+      background: #ef4444;
+      color: white;
+    }
+    .btn-primary:hover { background: #dc2626; }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #e2e8f0;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+    .btn-safe {
+      background: #0284c7;
+      color: white;
+    }
+    .btn-safe:hover { background: #0369a1; }
+    .log-box {
+      margin-top: 1.5rem;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 6px;
+      padding: 0.75rem;
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      max-height: 120px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <img class="icon" src="../logo.svg" alt="DSH" onerror="this.src='../icons/hicolor/128x128/apps/dsh-desktop.png'">
+      <h1 id="recovery-title">DeepSeek Harness Recovery</h1>
+    </div>
+    <p class="lead" id="recovery-message">
+      A startup failure was detected. A third-party plugin prevented DeepSeek Harness from launching normally.
+    </p>
+
+    <ul class="plugin-list" id="plugin-list" style="display: none;"></ul>
+
+    <div class="actions">
+      <button class="btn-primary" id="btn-primary" onclick="dispatchAction('primary')">Resolve Issue</button>
+      <button class="btn-safe" id="btn-safe" onclick="dispatchAction('safe-mode')">Launch in Safe Mode</button>
+      <button class="btn-secondary" id="btn-retry" onclick="dispatchAction('retry')">Retry Startup</button>
+    </div>
+
+    <div class="log-box" id="log-box" style="display: none;"></div>
+  </div>
+
+  <script>
+    let currentModel = null;
+
+    function renderRecovery(model) {
+      currentModel = model;
+      if (!model) return;
+      if (model.title) document.getElementById('recovery-title').textContent = model.title;
+      if (model.noCandidate) {
+        document.getElementById('recovery-message').textContent = model.noCandidate;
+      }
+      const list = document.getElementById('plugin-list');
+      if (model.plugins && model.plugins.length > 0) {
+        list.style.display = 'block';
+        list.innerHTML = '';
+        model.plugins.forEach(p => {
+          const li = document.createElement('li');
+          li.className = 'plugin-item';
+          li.innerHTML = `<span class="plugin-name">${typeof p === 'string' ? p : p.name}</span>`;
+          list.appendChild(li);
+        });
+      } else {
+        list.style.display = 'none';
+      }
+
+      const primaryBtn = document.getElementById('btn-primary');
+      if (model.primaryLabel) {
+        primaryBtn.textContent = model.primaryLabel;
+        primaryBtn.style.display = 'inline-block';
+      } else {
+        primaryBtn.style.display = 'none';
+      }
+
+      if (model.rawError) {
+        const logBox = document.getElementById('log-box');
+        logBox.style.display = 'block';
+        logBox.textContent = model.rawError;
+      }
+    }
+
+    function dispatchAction(actionKey) {
+      if (window.dshRecovery && typeof window.dshRecovery.action === 'function') {
+        let action = actionKey;
+        if (actionKey === 'primary' && currentModel) {
+          if (currentModel.plan?.removals?.length > 0) {
+            action = `uninstall:${currentModel.plan.removals[0]}`;
+          } else if (currentModel.plan?.upgrades?.length > 0) {
+            action = `upgrade:${currentModel.plan.upgrades[0].packageName}`;
+          } else if (currentModel.canUninstall && currentModel.plugins?.length > 0) {
+            action = `uninstall:${typeof currentModel.plugins[0] === 'string' ? currentModel.plugins[0] : currentModel.plugins[0].name}`;
+          } else {
+            action = 'safe-mode';
+          }
+        }
+        window.dshRecovery.action(action);
+      }
+    }
+
+    window.setRecoveryModel = renderRecovery;
+  </script>
+</body>
+</html>
