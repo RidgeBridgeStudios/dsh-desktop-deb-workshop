@@ -265,7 +265,7 @@ if [ -d "$ELECTRON_APP_DIR" ]; then
 
     if [ -n "$ELECTRON_BIN" ]; then
         echo "Launching DSH Desktop in sandboxed Electron wrapper..."
-        exec "$ELECTRON_BIN" "$ELECTRON_APP_DIR" --url="$TARGET_URL" --class="dsh-desktop" "$@"
+        exec "$ELECTRON_BIN" "$ELECTRON_APP_DIR" --ozone-platform-hint=auto --url="$TARGET_URL" --class="dsh-desktop" "$@"
     fi
 fi
 
