@@ -1,8 +1,7 @@
 // Main process for DSH Desktop Electron wrapper.
 // Runs the DeepSeek Harness UI in a strictly sandboxed Chromium window
-// with system tray icon support and DSH service management.
+// with system tray icon support, DSH service management, and recovery supervisor.
 
-import { app, BrowserWindow, shell, Menu, ipcMain, Tray, nativeImage, Notification } from 'electron';
 import path from 'node:path';
 import http from 'node:http';
 import https from 'node:https';
@@ -10,13 +9,54 @@ import fs from 'node:fs';
 import { exec, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import {
+  PLUGIN_FAILURE_PREFIX,
+  parsePluginStartupFailures
+} from '../lib/plugin-manager/startup-failure.mjs';
+import {
+  SAFE_MODE_PROFILE,
+  shouldStartInSafeMode,
+  ensureSafeModeProfile,
+  buildSafeModeViewModel
+} from '../lib/plugin-manager/safe-mode.mjs';
+import {
+  buildRecoveryViewModel
+} from '../lib/plugin-manager/recovery-view.mjs';
+import {
+  installMarketShared,
+  uninstallMarketShared
+} from '../lib/plugin-manager/market-backend.mjs';
+import {
+  dshHome as defaultDshHome,
+  LIVE_PROFILE
+} from '../lib/plugin-manager/paths.mjs';
+
+let electron = null;
+try {
+  electron = await import('electron');
+} catch {
+  // Running in standard Node.js test environment without Electron
+}
+
+const {
+  app,
+  BrowserWindow,
+  shell,
+  Menu,
+  ipcMain,
+  Tray,
+  nativeImage,
+  Notification
+} = electron || {};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Ensure proper app identity
-app.setName('DSH Desktop');
-if (process.platform === 'linux') {
-  app.setAppUserModelId('dsh-desktop');
+if (app) {
+  app.setName('DSH Desktop');
+  if (process.platform === 'linux') {
+    app.setAppUserModelId('dsh-desktop');
+  }
 }
 
 let mainWindow = null;
@@ -28,9 +68,8 @@ let dshStatus = {
   detail: 'Checking...'
 };
 
-// Parse target URL from arguments or environment
-function resolveTargetUrl() {
-  for (const arg of process.argv.slice(1)) {
+export function resolveTargetUrl(argv = process.argv) {
+  for (const arg of argv.slice(1)) {
     if (arg.startsWith('--url=')) {
       return arg.slice(6);
     }
@@ -43,8 +82,7 @@ function resolveTargetUrl() {
 
 const targetUrl = resolveTargetUrl();
 
-// Find best app window icon
-function resolveIconPath() {
+export function resolveIconPath() {
   const candidates = [
     '/usr/share/icons/hicolor/128x128/apps/dsh-desktop.png',
     path.resolve(__dirname, '../../icons/hicolor/128x128/apps/dsh-desktop.png'),
@@ -57,8 +95,7 @@ function resolveIconPath() {
   return candidates[0];
 }
 
-// Find best tray icon
-function resolveTrayIconPath() {
+export function resolveTrayIconPath() {
   const candidates = [
     '/usr/share/dsh-desktop/tray-icon.png',
     path.resolve(__dirname, '../tray-icon.png'),
@@ -72,8 +109,28 @@ function resolveTrayIconPath() {
   return resolveIconPath();
 }
 
-// Check whether local server is reachable
-function checkServerReady(urlStr, callback) {
+export function resolvePatchPath() {
+  const candidates = [
+    '/usr/share/dsh-desktop/dsh-desktop.patch.yml',
+    path.resolve(__dirname, '../dsh-desktop.patch.yml'),
+    path.resolve(__dirname, '../../dsh-desktop.patch.yml')
+  ];
+  return candidates.find((c) => fs.existsSync(c));
+}
+
+export function buildDaemonArgs(options = {}) {
+  const isSafeMode = options.safeMode ?? shouldStartInSafeMode(process.argv);
+  const patchPath = options.patchPath ?? resolvePatchPath();
+  const args = [];
+  if (isSafeMode) {
+    args.push('--profile', SAFE_MODE_PROFILE);
+  } else if (patchPath && fs.existsSync(patchPath)) {
+    args.push('--patch', patchPath);
+  }
+  return args;
+}
+
+export function checkServerReady(urlStr, callback) {
   try {
     const parsed = new URL(urlStr);
     const client = parsed.protocol === 'https:' ? https : http;
@@ -91,8 +148,7 @@ function checkServerReady(urlStr, callback) {
   }
 }
 
-// Helper to execute shell commands as promises
-function executeCommand(cmd) {
+export function executeCommand(cmd) {
   return new Promise((resolve) => {
     exec(cmd, (error, stdout, stderr) => {
       resolve({ error, stdout: (stdout || '').trim(), stderr: (stderr || '').trim() });
@@ -100,8 +156,7 @@ function executeCommand(cmd) {
   });
 }
 
-// Query whether DSH backend service or process is currently active
-async function checkDshStatus() {
+export async function checkDshStatus() {
   const systemctlRes = await executeCommand('systemctl --user is-active dsh-desktop.service');
   if (systemctlRes.stdout === 'active') {
     dshStatus = { active: true, detail: 'systemd service active' };
@@ -118,8 +173,12 @@ async function checkDshStatus() {
   return dshStatus;
 }
 
-// Restart DSH backend service or fallback process
-async function restartDshBackend() {
+export async function stopDshBackend() {
+  await executeCommand('systemctl --user stop dsh-desktop.service');
+  await executeCommand("pkill -f '@deepseek-ai/dsh|dsh-desktop-daemon'");
+}
+
+export async function restartDshBackend(options = {}) {
   const { stdout } = await executeCommand('systemctl --user is-active dsh-desktop.service');
   if (stdout === 'active' || stdout === 'activating' || stdout === 'failed') {
     const restartRes = await executeCommand('systemctl --user restart dsh-desktop.service');
@@ -128,8 +187,7 @@ async function restartDshBackend() {
     }
   }
 
-  // Fallback: kill existing process and launch daemon
-  await executeCommand("pkill -f '@deepseek-ai/dsh|dsh-desktop-daemon'");
+  await stopDshBackend();
   await new Promise((resolve) => setTimeout(resolve, 600));
 
   const daemonCandidates = [
@@ -139,6 +197,7 @@ async function restartDshBackend() {
   const daemonBin = daemonCandidates.find((p) => fs.existsSync(p));
 
   if (daemonBin) {
+    const daemonArgs = buildDaemonArgs(options);
     const logDir = path.join(process.env.HOME || '/tmp', '.local/share/dsh-desktop');
     try {
       fs.mkdirSync(logDir, { recursive: true });
@@ -150,7 +209,7 @@ async function restartDshBackend() {
     } catch {
       outFd = 'ignore';
     }
-    const child = spawn(daemonBin, [], {
+    const child = spawn(daemonBin, daemonArgs, {
       detached: true,
       stdio: ['ignore', outFd, outFd]
     });
@@ -161,14 +220,33 @@ async function restartDshBackend() {
   return false;
 }
 
-// Stop DSH backend service or fallback process
-async function stopDshBackend() {
-  await executeCommand('systemctl --user stop dsh-desktop.service');
-  await executeCommand("pkill -f '@deepseek-ai/dsh|dsh-desktop-daemon'");
+export function handleStartupFailureText(text) {
+  const failures = parsePluginStartupFailures(text);
+  if (!failures || failures.length === 0) return null;
+  const pluginNames = failures.map((f) => f.packageName).filter(Boolean);
+  return buildRecoveryViewModel({
+    locale: 'en',
+    plugins: pluginNames,
+    structured: true,
+    rawError: failures.map((f) => `${f.packageName}: ${f.message}`).join('\n')
+  });
 }
 
-// Poll server readiness then navigate to target URL
-function pollAndLoad() {
+export function checkRecentLogFailures() {
+  const logDir = path.join(process.env.HOME || '/tmp', '.local/share/dsh-desktop');
+  const logFile = path.join(logDir, 'dsh.log');
+  if (!fs.existsSync(logFile)) return null;
+  try {
+    const content = fs.readFileSync(logFile, 'utf8');
+    const lines = content.trim().split('\n');
+    const recent = lines.slice(-50).join('\n');
+    return handleStartupFailureText(recent);
+  } catch {
+    return null;
+  }
+}
+
+export function pollAndLoad() {
   if (isPolling) return;
   isPolling = true;
   let attempts = 0;
@@ -183,16 +261,33 @@ function pollAndLoad() {
           mainWindow.loadURL(targetUrl);
         }
         checkDshStatus().then(() => updateTrayMenu());
-      } else if (attempts < maxAttempts) {
-        setTimeout(attemptPoll, 500);
       } else {
-        isPolling = false;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.executeJavaScript(
-            `window.updateStatus && window.updateStatus("Failed to connect to DeepSeek Harness daemon after 15s. Ensure 'dsh-desktop-daemon' is running.", true);`
-          ).catch(() => {});
+        const failureModel = checkRecentLogFailures();
+        if (failureModel) {
+          isPolling = false;
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.loadFile(path.join(__dirname, 'recovery.html'));
+            mainWindow.webContents.once('did-finish-load', () => {
+              mainWindow.webContents.executeJavaScript(
+                `window.setRecoveryModel && window.setRecoveryModel(${JSON.stringify(failureModel)});`
+              ).catch(() => {});
+            });
+          }
+          checkDshStatus().then(() => updateTrayMenu());
+          return;
         }
-        checkDshStatus().then(() => updateTrayMenu());
+
+        if (attempts < maxAttempts) {
+          setTimeout(attemptPoll, 500);
+        } else {
+          isPolling = false;
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.executeJavaScript(
+              `window.updateStatus && window.updateStatus("Failed to connect to DeepSeek Harness daemon after 15s. Ensure 'dsh-desktop-daemon' is running.", true);`
+            ).catch(() => {});
+          }
+          checkDshStatus().then(() => updateTrayMenu());
+        }
       }
     });
   }
@@ -200,8 +295,7 @@ function pollAndLoad() {
   attemptPoll();
 }
 
-// Toggle window visibility (bring to focus if backgrounded or restore if hidden)
-function toggleWindow() {
+export function toggleWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow();
     return;
@@ -219,16 +313,16 @@ function toggleWindow() {
   updateTrayMenu();
 }
 
-// Restart Electron desktop application
-function restartDesktopApp() {
+export function restartDesktopApp() {
   isQuitting = true;
-  app.relaunch();
-  app.exit(0);
+  if (app) {
+    app.relaunch();
+    app.exit(0);
+  }
 }
 
-// Restart DeepSeek Harness backend and reconnect UI
-async function restartDsh() {
-  if (Notification.isSupported()) {
+export async function restartDsh() {
+  if (Notification && Notification.isSupported()) {
     try {
       new Notification({
         title: 'DSH Desktop',
@@ -247,13 +341,11 @@ async function restartDsh() {
   await restartDshBackend();
   await checkDshStatus();
   updateTrayMenu();
-
   pollAndLoad();
 }
 
-// Restart both backend DSH and desktop application
-async function restartBoth() {
-  if (Notification.isSupported()) {
+export async function restartBoth() {
+  if (Notification && Notification.isSupported()) {
     try {
       new Notification({
         title: 'DSH Desktop',
@@ -262,25 +354,132 @@ async function restartBoth() {
     } catch {}
   }
   await restartDshBackend();
+  restartDesktopApp();
+}
+
+export function quitDesktopApp() {
   isQuitting = true;
-  app.relaunch();
+  if (app) app.quit();
+}
+
+export async function quitEverything() {
+  isQuitting = true;
+  await stopDshBackend();
+  if (app) app.quit();
+}
+
+export function relaunchSafeMode(selection = []) {
+  if (!app) return;
+  const currentArgs = process.argv.slice(1).filter((arg) => arg !== '--safe-mode');
+  currentArgs.push('--safe-mode');
+  isQuitting = true;
+  app.relaunch({ args: currentArgs });
   app.exit(0);
 }
 
-// Quit desktop application only
-function quitDesktopApp() {
+export function exitSafeMode() {
+  if (!app) return;
+  const currentArgs = process.argv.slice(1).filter((arg) => arg !== '--safe-mode');
   isQuitting = true;
-  app.quit();
+  app.relaunch({ args: currentArgs });
+  app.exit(0);
 }
 
-// Quit both desktop application and underlying DSH backend
-async function quitEverything() {
-  isQuitting = true;
-  await stopDshBackend();
-  app.quit();
+/**
+ * Invariant 9 Runtime Stop Wrapper:
+ * Guarantees that all package mutations execute strictly while the runtime daemon is stopped.
+ */
+export async function withDaemonStopped(action, context = {}) {
+  const checker = context.checkStatus || checkDshStatus;
+  const stopper = context.stopBackend || stopDshBackend;
+  const restarter = context.restartBackend || restartDshBackend;
+
+  const status = await checker();
+  const wasRunning = status.active;
+  if (wasRunning) {
+    await stopper();
+  }
+  try {
+    return await action();
+  } finally {
+    if (wasRunning) {
+      await restarter();
+    }
+  }
 }
 
-function createWindow() {
+export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
+  if (!ipc || typeof ipc.handle !== 'function') return;
+
+  const restartDshFn = supervisor.restartDsh || restartDsh;
+  const withStoppedFn = supervisor.withDaemonStopped || withDaemonStopped;
+  const installMarketFn = supervisor.installMarketShared || installMarketShared;
+  const uninstallMarketFn = supervisor.uninstallMarketShared || uninstallMarketShared;
+  const relaunchSafeModeFn = supervisor.relaunchSafeMode || relaunchSafeMode;
+  const exitSafeModeFn = supervisor.exitSafeMode || exitSafeMode;
+  const home = supervisor.dshHome || defaultDshHome();
+
+  ipc.handle('harness:restart', async () => {
+    return restartDshFn();
+  });
+
+  ipc.handle('market:install', async (event, options = {}) => {
+    return withStoppedFn(async () => {
+      return installMarketFn({
+        dshHome: home,
+        profile: LIVE_PROFILE,
+        ...options
+      });
+    }, supervisor);
+  });
+
+  ipc.handle('market:uninstall', async (event, options = {}) => {
+    return withStoppedFn(async () => {
+      return uninstallMarketFn({
+        dshHome: home,
+        profile: LIVE_PROFILE,
+        ...options
+      });
+    }, supervisor);
+  });
+
+  ipc.handle('recovery:action', async (event, action) => {
+    if (action === 'safe-mode') {
+      return relaunchSafeModeFn();
+    }
+    if (action === 'retry') {
+      return restartDshFn();
+    }
+    if (typeof action === 'string' && action.startsWith('uninstall:')) {
+      const pkg = action.slice('uninstall:'.length);
+      return withStoppedFn(async () => {
+        const { uninstallPlugin } = await import('../lib/plugin-manager/plugin-removal.mjs');
+        return uninstallPlugin({ dshHome: home, packageName: pkg });
+      }, supervisor);
+    }
+    if (typeof action === 'string' && action.startsWith('upgrade:')) {
+      const pkg = action.slice('upgrade:'.length);
+      return withStoppedFn(async () => {
+        const { upgradePlugin } = await import('../lib/plugin-manager/plugin-upgrade.mjs');
+        return upgradePlugin({ dshHome: home, packageName: pkg });
+      }, supervisor);
+    }
+    return { error: 'Unknown recovery action' };
+  });
+
+  ipc.handle('safe-mode:action', async (event, action, selection) => {
+    if (action === 'launch' || action === 'relaunch') {
+      return relaunchSafeModeFn(selection);
+    }
+    if (action === 'exit') {
+      return exitSafeModeFn();
+    }
+    return { ok: true };
+  });
+}
+
+export function createWindow() {
+  if (!BrowserWindow) return;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -291,7 +490,6 @@ function createWindow() {
     backgroundColor: '#0f172a',
     show: false,
     webPreferences: {
-      // 1. Mandatory security sandbox isolation
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -302,15 +500,13 @@ function createWindow() {
     }
   });
 
-  // 2. Intercept new windows (target="_blank", window.open) and open in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http:') || url.startsWith('https:') || url.startsWith('mailto:')) {
-      shell.openExternal(url);
+      if (shell) shell.openExternal(url);
     }
     return { action: 'deny' };
   });
 
-  // 3. Prevent in-app navigation to non-loopback URLs
   mainWindow.webContents.on('will-navigate', (event, navUrl) => {
     try {
       const parsedNav = new URL(navUrl);
@@ -320,20 +516,18 @@ function createWindow() {
 
       if (!isLoopback || !isSamePort) {
         event.preventDefault();
-        shell.openExternal(navUrl);
+        if (shell) shell.openExternal(navUrl);
       }
     } catch {
       event.preventDefault();
     }
   });
 
-  // Load loading splash screen first
   mainWindow.loadFile(path.join(__dirname, 'loading.html'));
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
 
-  // Intercept window close to hide to tray rather than exiting
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -354,8 +548,8 @@ function createWindow() {
   setupMenu();
 }
 
-function updateTrayMenu() {
-  if (!tray) return;
+export function updateTrayMenu() {
+  if (!tray || !Menu) return;
 
   const isWindowVisible = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
   const statusText = dshStatus.active ? '● DSH Status: Running' : '○ DSH Status: Offline';
@@ -402,7 +596,8 @@ function updateTrayMenu() {
   tray.setToolTip(`DSH Desktop (${dshStatus.active ? 'Running' : 'Offline'})`);
 }
 
-function createTray() {
+export function createTray() {
+  if (!Tray || !nativeImage) return;
   const iconPath = resolveTrayIconPath();
   let icon;
   try {
@@ -420,15 +615,14 @@ function createTray() {
 
   updateTrayMenu();
 
-  // Periodically refresh tray status
   setInterval(async () => {
     await checkDshStatus();
     updateTrayMenu();
   }, 5000);
 }
 
-function setupMenu() {
-  const isMac = process.platform === 'darwin';
+export function setupMenu() {
+  if (!Menu) return;
   const template = [
     {
       label: 'File',
@@ -502,13 +696,13 @@ function setupMenu() {
         {
           label: 'DeepSeek Harness Documentation',
           click: async () => {
-            await shell.openExternal('https://github.com/deepseek-ai/deepseek-harness');
+            if (shell) await shell.openExternal('https://github.com/deepseek-ai/deepseek-harness');
           }
         },
         {
           label: 'DSH Desktop Workshop',
           click: async () => {
-            await shell.openExternal('https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop');
+            if (shell) await shell.openExternal('https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop');
           }
         }
       ]
@@ -519,28 +713,30 @@ function setupMenu() {
   Menu.setApplicationMenu(menu);
 }
 
-app.whenReady().then(async () => {
-  await checkDshStatus();
-  createWindow();
-  createTray();
+if (app) {
+  app.whenReady().then(async () => {
+    registerIpcHandlers(ipcMain);
+    await checkDshStatus();
+    createWindow();
+    createTray();
 
-  app.on('activate', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      createWindow();
-    } else {
-      mainWindow.show();
-      mainWindow.focus();
+    app.on('activate', () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        createWindow();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  });
+
+  app.on('before-quit', () => {
+    isQuitting = true;
+  });
+
+  app.on('window-all-closed', () => {
+    if (isQuitting) {
+      app.quit();
     }
   });
-});
-
-app.on('before-quit', () => {
-  isQuitting = true;
-});
-
-app.on('window-all-closed', () => {
-  // Keep app running in tray unless explicit quit is triggered
-  if (isQuitting) {
-    app.quit();
-  }
-});
+}
