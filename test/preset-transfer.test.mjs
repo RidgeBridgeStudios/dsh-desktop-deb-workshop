@@ -20,10 +20,19 @@ import {
   handlePresetExport,
   handlePresetImportInstall,
   handlePresetImportPreview,
+  resolveScanRootFunction,
   PRESET_EXPORT_PATH,
   PRESET_IMPORT_PATH
 } from '../usr/share/dsh-desktop/lib/plugin-manager/preset-routes.mjs'
+import { dshHome, LIVE_PROFILE } from '../usr/share/dsh-desktop/lib/plugin-manager/paths.mjs'
 import { createMarketServer, listenMarketServer } from '../usr/share/dsh-desktop/lib/plugin-manager/market-server.mjs'
+
+test('constants: size caps match the specification directly', () => {
+  assert.equal(MAX_FILES, 512)
+  assert.equal(MAX_FILE_BYTES, 12 * 1024 * 1024)
+  assert.equal(MAX_UNCOMPRESSED_BYTES, 32 * 1024 * 1024)
+  assert.equal(MAX_COMPRESSED_BYTES, 16 * 1024 * 1024)
+})
 
 async function createTempDir(t) {
   const dir = await mkdtemp(join(tmpdir(), 'preset-test-'))
@@ -400,18 +409,33 @@ test('install integration: scanRoot resolves @deepseek-ai/* package via harnessB
     }
   })
 
-  const harnessBase = pathToFileURL('/home/gabriel/.dsh/profiles/default/').href
+  const home = dshHome()
+  const expectedHarnessBase = pathToFileURL(join(home, 'profiles', LIVE_PROFILE) + '/').href
+  assert.equal(defaultHarnessBase(home), expectedHarnessBase)
+  assert.ok(expectedHarnessBase.endsWith(`/profiles/${LIVE_PROFILE}/`))
+
   const req = { url: `${PRESET_IMPORT_PATH}?agentPreset=cordis-ref&install=1`, method: 'POST', socket: { remoteAddress: '127.0.0.1' } }
   const res = mockRes()
 
+  let harnessBasePassed = null
+  const realScanFn = resolveScanRootFunction(undefined, home)
+  assert.ok(realScanFn, 'scanRoot function should be resolved from closure')
+
   await handlePresetImportInstall(req, res, {
     roots,
-    harnessBase,
-    bodyBuffer: archive
+    dshHome: home,
+    bodyBuffer: archive,
+    scanRootFn: async (root, base) => {
+      harnessBasePassed = base
+      return realScanFn(root, base)
+    }
   })
 
   assert.equal(res.statusCode, 200)
-  assert.equal(JSON.parse(res.body).installed, true)
+  const body = JSON.parse(res.body)
+  assert.equal(body.installed, true)
+  assert.equal(body.agentPreset, 'cordis-ref')
+  assert.equal(harnessBasePassed, expectedHarnessBase)
 })
 
 // ---------------------------------------------------------------------------

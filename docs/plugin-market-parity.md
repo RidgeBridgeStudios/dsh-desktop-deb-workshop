@@ -776,3 +776,52 @@ update is available and uninstall is recommended. No "try again later" softening
   Phase 7 exposes pure planning/application seams plus a thin orchestrator.
 - Network metadata fetching is injected at the call site; the selection logic
   is pure and fully tested without the network.
+
+---
+
+## Phase 8 — Agent Preset Transfer (complete)
+
+### Overview
+
+Added `.dshpreset` zip archive transfer primitives and HTTP API endpoints on
+the loopback market server for exporting and importing agent presets
+(`~/.dsh/.agent-presets/<id>/agent.cordis.yml`).
+
+### Size Caps & Security Rules
+
+Specified caps enforced strictly across archive creation and extraction:
+- `MAX_FILES = 512`
+- `MAX_FILE_BYTES = 12 * 1024 * 1024` (12 MB)
+- `MAX_UNCOMPRESSED_BYTES = 32 * 1024 * 1024` (32 MB)
+- `MAX_COMPRESSED_BYTES = 16 * 1024 * 1024` (16 MB)
+
+Security invariants:
+- Rejects path traversals (absolute paths, `..`, and `\` components).
+- Disallows symlinks inside exported preset directories.
+- Built-in presets (`trust: 'system'`) are protected against export with HTTP 403.
+- Skips OS metadata files (`.DS_Store`, `Thumbs.db`, `desktop.ini`, `._*`, `__MACOSX/`).
+- Emits heuristic non-fatal warnings on preview/install for suspected secrets (`possible-secrets`)
+  and machine-local absolute paths (`absolute-paths`).
+- Atomic install stages into `mkdtemp`, sets `0755` permissions on shell scripts (`.sh`, `.bash`),
+  validates composition via `scanRoot` before rename, and handles client abort with HTTP 499
+  and immediate temp cleanup.
+- Loopback guard required for export; loopback + HTTP same-origin required for import preview
+  and install.
+
+### Phase 8 — commit granularity
+
+Tests were landed in a single commit at the end of the phase (`94ea998`:
+`test(plugin-manager): add comprehensive preset transfer route and archive tests`)
+rather than grouped per route commit.
+
+### Files added / modified
+
+- `usr/share/dsh-desktop/lib/plugin-manager/preset-archive.mjs`
+- `usr/share/dsh-desktop/lib/plugin-manager/preset-routes.mjs`
+- `usr/share/dsh-desktop/lib/plugin-manager/market-server.mjs`
+- `test/preset-transfer.test.mjs`
+
+### Verification
+
+- `npm test` → `# tests 169 / # pass 169 / # fail 0 / # skipped 0`.
+

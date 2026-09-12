@@ -96,11 +96,11 @@ export function resolveScanRootFunction(scanRootFn, home = defaultDshHome()) {
 export async function handlePresetExport(req, res, options = {}) {
   const {
     roots,
-    harnessBase = defaultHarnessBase(),
     signal = req.signal,
     sourceDshVersion = '0.1.5-rc.1',
     scanRootFn,
-    dshHome: home = defaultDshHome()
+    dshHome: home = defaultDshHome(),
+    harnessBase = defaultHarnessBase(home)
   } = options
 
   if (signal?.aborted) {
@@ -249,10 +249,11 @@ export function findUserWritableRoot(roots) {
 export async function handlePresetImportPreview(req, res, options = {}) {
   const {
     roots,
-    harnessBase = defaultHarnessBase(),
     signal = req.signal,
     scanRootFn,
-    bodyBuffer: injectedBuffer
+    bodyBuffer: injectedBuffer,
+    dshHome: home = defaultDshHome(),
+    harnessBase = defaultHarnessBase(home)
   } = options
 
   if (signal?.aborted) {
@@ -292,7 +293,7 @@ export async function handlePresetImportPreview(req, res, options = {}) {
     return sendJson(res, 400, { error: `Invalid preset target id: ${targetId}` })
   }
 
-  const scanFn = resolveScanRootFunction(scanRootFn, options.dshHome)
+  const scanFn = resolveScanRootFunction(scanRootFn, home)
   if (!scanFn) {
     return sendJson(res, 500, { error: 'Preset subsystem is not available.' })
   }
@@ -305,9 +306,7 @@ export async function handlePresetImportPreview(req, res, options = {}) {
         conflict = true
         break
       }
-    } catch {
-      // Continue checking
-    }
+    } catch {}
   }
 
   if (!conflict) {
@@ -349,11 +348,11 @@ export async function handlePresetImportPreview(req, res, options = {}) {
 export async function handlePresetImportInstall(req, res, options = {}) {
   const {
     roots,
-    harnessBase = defaultHarnessBase(),
     signal = req.signal,
     scanRootFn,
     bodyBuffer: injectedBuffer,
-    dshHome: home = defaultDshHome()
+    dshHome: home = defaultDshHome(),
+    harnessBase = defaultHarnessBase(home)
   } = options
 
   if (signal?.aborted) {
