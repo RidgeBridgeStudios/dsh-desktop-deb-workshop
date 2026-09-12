@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -13,7 +14,7 @@ import {
   MAX_UNCOMPRESSED_BYTES,
   PRESET_ID_PATTERN
 } from './preset-archive.mjs'
-import { dshHome as defaultDshHome, LIVE_PROFILE, profileDirectory } from './paths.mjs'
+import { dshHome as defaultDshHome, installationClosureDir, LIVE_PROFILE, profileDirectory } from './paths.mjs'
 import { isTrustedRequest, sendJson } from './market-routes.mjs'
 
 export const PRESET_EXPORT_PATH = '/api/agent-preset.export'
@@ -75,13 +76,31 @@ export async function collectPresetFiles(presetDir, signal) {
   return files
 }
 
+export function resolveScanRootFunction(scanRootFn, home = defaultDshHome()) {
+  if (scanRootFn) return scanRootFn
+  const candidates = [
+    join(installationClosureDir(home), 'dummy.js'),
+    '/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/dummy.js',
+    '/usr/lib/node_modules/@deepseek-ai/dsh/node_modules/dummy.js'
+  ]
+  for (const c of candidates) {
+    try {
+      const req = createRequire(c)
+      const mod = req('@deepseek-ai/dsh-agent-presets')
+      if (typeof mod?.scanRoot === 'function') return mod.scanRoot
+    } catch {}
+  }
+  return null
+}
+
 export async function handlePresetExport(req, res, options = {}) {
   const {
     roots,
     harnessBase = defaultHarnessBase(),
     signal = req.signal,
     sourceDshVersion = '0.1.5-rc.1',
-    scanRootFn
+    scanRootFn,
+    dshHome: home = defaultDshHome()
   } = options
 
   if (signal?.aborted) {
@@ -100,14 +119,9 @@ export async function handlePresetExport(req, res, options = {}) {
     return sendJson(res, 400, { error: 'Missing required agentPreset parameter.' })
   }
 
-  let scanFn = scanRootFn
+  const scanFn = resolveScanRootFunction(scanRootFn, home)
   if (!scanFn) {
-    try {
-      const presetsPkg = await import('@deepseek-ai/dsh-agent-presets')
-      scanFn = presetsPkg.scanRoot
-    } catch {
-      return sendJson(res, 500, { error: 'Preset subsystem is not available.' })
-    }
+    return sendJson(res, 500, { error: 'Preset subsystem is not available.' })
   }
 
   let targetPreset
@@ -278,14 +292,9 @@ export async function handlePresetImportPreview(req, res, options = {}) {
     return sendJson(res, 400, { error: `Invalid preset target id: ${targetId}` })
   }
 
-  let scanFn = scanRootFn
+  const scanFn = resolveScanRootFunction(scanRootFn, options.dshHome)
   if (!scanFn) {
-    try {
-      const presetsPkg = await import('@deepseek-ai/dsh-agent-presets')
-      scanFn = presetsPkg.scanRoot
-    } catch {
-      return sendJson(res, 500, { error: 'Preset subsystem is not available.' })
-    }
+    return sendJson(res, 500, { error: 'Preset subsystem is not available.' })
   }
 
   let conflict = false
@@ -343,7 +352,8 @@ export async function handlePresetImportInstall(req, res, options = {}) {
     harnessBase = defaultHarnessBase(),
     signal = req.signal,
     scanRootFn,
-    bodyBuffer: injectedBuffer
+    bodyBuffer: injectedBuffer,
+    dshHome: home = defaultDshHome()
   } = options
 
   if (signal?.aborted) {
@@ -383,14 +393,9 @@ export async function handlePresetImportInstall(req, res, options = {}) {
     return sendJson(res, 400, { error: `Invalid preset target id: ${targetId}` })
   }
 
-  let scanFn = scanRootFn
+  const scanFn = resolveScanRootFunction(scanRootFn, home)
   if (!scanFn) {
-    try {
-      const presetsPkg = await import('@deepseek-ai/dsh-agent-presets')
-      scanFn = presetsPkg.scanRoot
-    } catch {
-      return sendJson(res, 500, { error: 'Preset subsystem is not available.' })
-    }
+    return sendJson(res, 500, { error: 'Preset subsystem is not available.' })
   }
 
   for (const root of roots) {
