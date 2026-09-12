@@ -1,0 +1,34 @@
+# DSH Desktop
+
+> Standalone desktop workspace and native Debian packaging for the DeepSeek Harness (@deepseek-ai/dsh) on Ubuntu 22.04+ and Zorin OS 17+.
+
+DSH Desktop wraps the official DeepSeek Harness local web UI in an isolated desktop window with systemd user session lifecycle management, automated native binary linking (sharp), and generation-based plugin projection. It eliminates common Linux obstacles including Node.js version mismatches, missing pnpm runtimes, `--expose-internals` flag restrictions, and profile initialization race conditions without requiring Snap or Flatpak.
+
+## Docs
+- [README](README.md): Overview, problem breakdown, manual and scripted installation instructions.
+- [Plugin Market Parity](docs/plugin-market-parity.md): Architecture specifications for plugin generations, recovery states, and preset import/export.
+
+## Source
+- [Desktop GUI Launcher](usr/local/bin/dsh-desktop): Wayland/X11 launcher script with Electron process wrapper and auto-detection.
+- [Daemon Runner](usr/local/bin/dsh-desktop-daemon): Background harness service supervisor with `--expose-internals` flag passing.
+- [Electron Main Process](usr/share/dsh-desktop/app/main.js): Desktop window management, system tray integration, health checks, and splash screens.
+- [Electron Preload](usr/share/dsh-desktop/app/preload.js): Context bridge exposing IPC methods between Electron renderer and main process.
+- [Plugin Registry](usr/share/dsh-desktop/lib/plugin-manager/registry.mjs): Atomic generation slots, isolation trees, locks, and package manifest management.
+- [Projection Engine](usr/share/dsh-desktop/lib/plugin-manager/projection.mjs): Symlink reconciliation, dependency overrides, and bundle list projection into active profiles.
+- [Recovery Engine](usr/share/dsh-desktop/lib/plugin-manager/recovery.mjs): Safe-mode rollback, crash diagnostics, and orphan cleanup logic.
+- [Preset Transfer Routes](usr/share/dsh-desktop/lib/plugin-manager/preset-routes.mjs): Export and import routes for preset zip archives.
+- [Preset Archive Logic](usr/share/dsh-desktop/lib/plugin-manager/preset-archive.mjs): Archive validation, security filters (path traversal, size limits), and fflate compression.
+- [Bundled pnpm Runner](usr/share/dsh-desktop/lib/plugin-manager/pnpm-runner.mjs): Isolated execution of vendored pnpm CLI with tree killing and idle timeouts.
+- [Safe Mode Server](usr/share/dsh-desktop/lib/plugin-manager/safe-mode.mjs): Fallback environment bootstrap with isolated core profile.
+- [Market Service](usr/share/dsh-desktop/packages/dsh-desktop-market-installer/index.js): HTTP service hooks for marketplace plugin installation.
+- [Package Builder](build.sh): Bash script assembling staging directories and invoking `dpkg-deb`.
+- [One-Line Installer](install.sh): Host prerequisite verification, Node 22 setup, and deb package installation.
+- [Debian Control](debian/control): Package architecture, dependency specifications, and maintainer metadata.
+- [Systemd Unit](lib/systemd/user/dsh-desktop.service): User-level systemd service configuration.
+
+## Tests
+- [Test Suite](test/): 27 test files covering installer, projection, recovery, presets, pnpm runner, and Wayland compatibility.
+
+## Optional
+- [License](LICENSE): MIT License terms.
+- [Debian Changelog](debian/changelog): Debian version history and package release notes.

@@ -11,3 +11,7 @@ node_modules/
 # Graphify knowledge graph artifacts
 graphify-out/
 .graphify*
+
+# Agent and session artifacts
+.context-mode/
+.agents/cache/

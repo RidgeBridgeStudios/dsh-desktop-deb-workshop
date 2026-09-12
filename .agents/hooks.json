@@ -1,0 +1,11 @@
+{
+  "repo-session-discipline": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "echo '{\"injectSteps\": [{\"ephemeralMessage\": \"Workspace Policy: Moderate /ponytail (YAGNI, stdlib-first, minimal diff) and /caveman (concise, direct, no filler, preserve technical clarity) are active for this session.\"}]}'",
+        "timeout": 5
+      }
+    ]
+  }
+}
