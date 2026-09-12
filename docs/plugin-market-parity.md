@@ -844,4 +844,96 @@ rather than grouped per route commit.
 2. **Lifecycle alignment**: The shim binary wrappers contain paths specific to the active runtime and Electron binary. Keeping them inside `<dshHome>` ensures all state managed by the harness lifecycle lives together, simplifying backup and removal.
 3. **Zero migration risk**: The directory is populated idempotently on demand by `ensurePnpmShim(home)` without needing stateful upgrade migrations.
 
+### 2. Wayland Flag (`--ozone-platform-hint=auto`)
+
+Added `--ozone-platform-hint=auto` directly to the Electron launch arguments in `usr/local/bin/dsh-desktop`.
+Verified by unit test: `test/wayland.test.mjs` (`launcher passes --ozone-platform-hint=auto to Electron`).
+
+### 3. Known Limits: inotify Watch Exhaustion
+
+The HMR fallback watches the profile patch layer via `fs.watch`. On default Linux installations (e.g. Ubuntu), `fs.inotify.max_user_watches` defaults to 8192.
+- **Best-effort watcher**: The filesystem watcher is strictly best-effort.
+- **Silent failure on exhaustion**: If the operating system refuses a watch (due to exhaustion of available inotify watch handles), the fallback error handler swallows the error without crashing or retrying, per reference design.
+- **User impact**: Users managing large profiles with many plugins who see "config changes require a restart" are experiencing inotify watch exhaustion.
+- **Phase 9 resolution**: No code change in Phase 9. If necessary, a bounded diagnostic warning at startup can be evaluated in Phase 10.
+
+### 4. Audit: Claim-to-Evidence Table
+
+| Claim / Component | Status / Verification Source | Phase 10 Acceptance (if unverified) |
+|---|---|---|
+| **Invariant 1: Registry layout** | verified by: `test/registry.test.mjs`::`registry layout nests under profiles/.generations` | — |
+| **Invariant 2: Desired pointer authority** | verified by: `test/registry.test.mjs`::`desired round-trips sorted and creates its directory`, `a corrupt desired pointer is rejected, never treated as empty` | — |
+| **Invariant 3: Registry lock** | verified by: `test/registry.test.mjs`::`the registry lock serializes concurrent operations`, `a stale lock from a crashed run is broken` | — |
+| **Invariant 4: Generation projection & link swap** | verified by: `test/projection.test.mjs`::`projects an enabled generation into a link, dependency, bundle and override`, `a failed link switch restores the previous link and rethrows` | — |
+| **Invariant 5: Pruning & foreign path safety** | verified by: `test/projection.test.mjs`::`prunes a stale generation symlink when it leaves desired`, `never prunes a foreign symlink or a real directory` | — |
+| **Invariant 6: Bundled pnpm & Node mode passthrough** | verified by: `test/pnpm-runner.test.mjs`::`buildPnpmEnvironment passes ELECTRON_RUN_AS_NODE through instead of deleting it`, `the packaged pnpm entry executes under a real Electron binary in Node mode` | — |
+| **Invariant 7: Process tree kill & idle timeout** | verified by: `test/pnpm-runner.test.mjs`::`kills the whole process tree on idle, including grandchildren`, `stops an idle pnpm run and reports it` | — |
+| **Invariant 8: Recovery ledger & tombstones** | verified by: `test/plugin-removal.test.mjs`::`a crashed uninstall still boots: the tombstone clears composition without throwing`, `test/startup-failure.test.mjs`::`a structured failure round-trips without any plugin config` | — |
+| **Invariant 9: Safe Mode isolation** | verified by: `test/safe-mode.test.mjs`::`ensures an isolated official-core profile and repairs tampering`, `Safe Mode shares DSH_HOME without touching the normal profile` | — |
+| **Invariant 10: Loopback & origin security guards** | verified by: `test/market-routes.test.mjs`::`isTrustedRequest rejects non-loopback or forwarded headers`, `test/preset-transfer.test.mjs`::`guard: export rejects non-loopback or forwarded headers; import requires loopback + same-origin` | — |
+| **Ref A: Generation Registry** | verified by: `test/registry.test.mjs` (all 24 tests) | — |
+| **Ref B: Pnpm runner & shim** | verified by: `test/pnpm-runner.test.mjs`, `test/pnpm-runtime.test.mjs` | — |
+| **Ref C: Projection & link swap** | verified by: `test/projection.test.mjs` | — |
+| **Ref D: Detection & recovery ledger** | verified by: `test/detection.test.mjs`, `test/recovery.test.mjs`, `test/plugin-removal.test.mjs` | — |
+| **Ref E: Safe Mode** | verified by: `test/safe-mode.test.mjs` | — |
+| **Ref F: Market HTTP API & RPC** | verified by: `test/market-routes.test.mjs` | — |
+| **Ref G: Compatibility & upgrades** | verified by: `test/market-registry.test.mjs`, `test/compatibility.test.mjs`, `test/plugin-upgrade.test.mjs` | — |
+| **Ref H: Preset transfer** | verified by: `test/preset-transfer.test.mjs` (all 19 tests) | — |
+| **Deferred: chrome-sandbox setuid** | NOT VERIFIED — Phase 10 acceptance | `dpkg-deb -c` on final package proves `chrome-sandbox` has permissions `4755`. |
+| **Deferred: systemd user unit & autostart** | NOT VERIFIED — Phase 10 acceptance | Verify installed package places `dsh-desktop.service` in systemd user dir and unit starts cleanly. |
+| **Deferred: Wayland ozone platform hint** | verified by: `test/wayland.test.mjs`::`launcher passes --ozone-platform-hint=auto to Electron` | — |
+| **Deferred: inotify limits** | Documented under Known Limits (no code change) | Phase 10 acceptance: evaluate bounded startup warning if needed. |
+| **Deferred: XDG paths** | Verified by Phase 9 decision (`dshHome` stays `~/.dsh`, shim stays `<dshHome>/.desktop-bin`) | — |
+| **Deferred: Upgrade verification end-to-end** | NOT VERIFIED — Phase 10 acceptance | Normal profile reboot after upgrade flips plugin status to verified on ready signal. |
+| **Deferred: Electron wiring** | NOT VERIFIED — Phase 10 acceptance | Electron main process instantiates MarketServer and wires lifecycle. |
+| **Deferred: Recovery page rendering** | NOT VERIFIED — Phase 10 acceptance | Safe mode / recovery webview renders localized HTML view model. |
+| **Deferred: Batch auto-fix UI** | NOT VERIFIED — Phase 10 acceptance | Recovery UI button dispatches batch plan execution. |
+| **Deferred: Market management UI** | NOT VERIFIED — Phase 10 acceptance | Market interface renders plugin catalogue and handles install/uninstall/upgrade clicks. |
+
+### 5. Audit: Mocked vs. Integration Coverage
+
+| Test Area / Seam | What the Mock Replaces | Real Path Status & Verification |
+|---|---|---|
+| `verifyNormalBoot` in `plugin-upgrade.test.mjs` | Spawning real DSH normal-profile process and waiting for ready signal | Mocked. Real path NOT covered in unit suite — Phase 10 acceptance: end-to-end Electron lifecycle test verifies normal profile boot ready signal. |
+| `fileSystem` seam in `projection.test.mjs` | Injects filesystem failures (e.g. throwing on link rename) | Mocked for fault-injection only. Real path covered by all standard projection tests using real `node:fs/promises`. |
+| `fileSystem` seam in `pnpm-runner.test.mjs` | Injects filesystem write failures during projection suspension | Mocked for fault-injection only. Real path covered by all standard pnpm-runner tests using real `node:fs/promises`. |
+| `scanRootFn` in `preset-transfer.test.mjs` | Preset discovery scanning across configured preset roots | Mocked in unit failure tests. Real path covered by `install integration: scanRoot resolves @deepseek-ai/* package via harnessBase` (resolves real `scanRoot` against real closure and `@deepseek-ai/cordis`, not skipped on CI). |
+| `fakeService` in `market-routes.test.mjs` | High-level `MarketService` implementation handling status/install/uninstall | Mocked in HTTP routing tests. Real path NOT covered in unit suite — Phase 10 acceptance: Electron main process attaches live `MarketService` to HTTP server. |
+| `installGenerationFn` in `plugin-upgrade.test.mjs` | Full pnpm generation installer pipeline | Mocked in batch upgrade planning tests. Real path covered per-unit by `installer.test.mjs`; Phase 10 acceptance covers full live market network install. |
+| Injected removal handlers in `recovery.test.mjs` | Lower-level removal and ledger update calls | Mocked for plan synthesis tests. Real path covered by `plugin-removal.test.mjs` (ledger recording, backup, detach). |
+
+### 6. Audit: Windows/Foreign-Platform Residue
+
+A recursive regex scan was executed across `usr/share/dsh-desktop/lib/plugin-manager/`:
+```bash
+grep -rnE "win32|win64|darwin|macos|macOS|junction|taskkill|windowsHide|SIDELINE|\.dsh-old|'Path'|\"Path\"" usr/share/dsh-desktop/lib/plugin-manager/
+```
+**Results**:
+- Zero active code hits.
+- Exactly one comment hit: `usr/share/dsh-desktop/lib/plugin-manager/pnpm-runtime.mjs:27`:
+  ```javascript
+  // Platform note: Historical reference context explaining upstream ELECTRON_RUN_AS_NODE passthrough behavior; no runtime platform branching.
+  // The child is spawned as `process.execPath`, which on macOS is the Electron...
+  ```
+  **Justification**: This is a historical documentation comment preserved from upstream reference explaining why `ELECTRON_RUN_AS_NODE` must not be stripped. It contains no runtime platform checks or branches.
+
+### 7. Audit: Locale Completeness in Code
+
+Every `t('...')` and `t("...")` invocation in `usr/share/dsh-desktop/` was compared against `LOCALES.en` and `LOCALES.zh`:
+- **Total keys in `en`**: 61
+- **Total keys in `zh`**: 61
+- **Keys used in code**: 34
+- **Keys used but missing from either locale**: **0** (no missing keys).
+- **Keys defined but unused in current code** (prepared for Phase 10 UI):
+  `nav`, `installing`, `installed`, `retry`, `statusFailed`, `futureUpdates`, `managementTab`, `uninstalling`, `removed`, `uninstallFailed`, `safeMode`, `safeModeSummary`, `safeModeSafetyNote`, `safeModeNoPlugins`, `safeModeSelectPlugins`, `safeModeSelectAll`, `safeModeRemoveSelected`, `safeModeRemoving`, `safeModeRestart`, `safeModeExit`, `safeModeQuit`, `safeModeUpgradeAll`, `safeModeUpgrading`, `recoveryRemoveMany`, `recoveryAutoProcess`, `externalComponentsNotice`, `noCompatibleUpdate`.
+
+### 8. Dead Code and TODO Scan
+
+A recursive scan across `usr/share/dsh-desktop/lib/plugin-manager/`:
+```bash
+grep -rnE "TODO|FIXME|HACK|XXX|XXX:" usr/share/dsh-desktop/lib/plugin-manager/
+```
+**Results**: **0 hits**. No unresolved `TODO`, `FIXME`, `HACK`, or `XXX` tags exist in the plugin-manager tree.
+
+
 

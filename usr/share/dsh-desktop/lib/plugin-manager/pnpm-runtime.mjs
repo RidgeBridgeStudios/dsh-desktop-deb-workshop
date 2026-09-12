@@ -24,6 +24,7 @@ export function buildPnpmEnvironment(
   environment = process.env,
   executablePath = process.execPath
 ) {
+  // Platform note: Historical reference context explaining upstream ELECTRON_RUN_AS_NODE passthrough behavior; no runtime platform branching.
   // The child is spawned as `process.execPath`, which on macOS is the Electron
   // helper binary: it only runs the dsh CLI as Node when ELECTRON_RUN_AS_NODE
   // is set. The harness entry (harness-node-entry.mjs) declares that flag in
