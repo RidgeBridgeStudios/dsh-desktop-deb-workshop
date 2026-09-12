@@ -123,6 +123,19 @@ test('attribution limits the plan and never falls back to all plugins', () => {
   assert.deepEqual(unique.plan.upgrades.map((item) => item.packageName), ['plugin-a'])
 })
 
+test('a structured report without provenance is not mixed with log guesses', () => {
+  const plan = buildRecoveryPlan({
+    candidates: [candidate('plugin-a', { bundlePatch: '- id: storage\n' })],
+    startupFailures: [{ packageName: 'leaf-module', chain: [] }],
+    logs: ['storage duplicate'],
+    duplicateLoaderEntryId: 'storage',
+    checks: [{ packageName: 'plugin-a', upgradeReady: true, upgradeVersion: '2.0.0' }]
+  })
+  assert.equal(plan.source, 'structured')
+  assert.deepEqual(plan.plugins, [])
+  assert.deepEqual(plan.plan.upgrades, [])
+})
+
 test('a structured failure is the preferred source', () => {
   const plan = buildRecoveryPlan({
     candidates: [candidate('plugin-a')],

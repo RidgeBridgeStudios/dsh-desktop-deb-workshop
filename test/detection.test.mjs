@@ -108,6 +108,24 @@ test('structured reports take precedence over log correlation', () => {
   assert.deepEqual(logs.plugins, ['plugin-a'])
 })
 
+test('structured provenance is reported honestly', () => {
+  const withOwner = detectPluginRecovery({
+    candidates: [candidate('plugin-a')],
+    startupFailures: [{ packageName: 'leaf', owner: { packageName: 'plugin-a' } }],
+    logs: []
+  })
+  assert.equal(withOwner.provenance, true)
+  assert.deepEqual(withOwner.plugins, ['plugin-a'])
+
+  const noOwner = detectPluginRecovery({
+    candidates: [candidate('plugin-a')],
+    startupFailures: [{ packageName: 'leaf', chain: [] }],
+    logs: []
+  })
+  assert.equal(noOwner.provenance, false)
+  assert.deepEqual(noOwner.plugins, [])
+})
+
 test('structured owners are restricted to configured roots and exclusions', () => {
   const candidates = [candidate('plugin-a'), candidate('plugin-b')]
   const failures = [

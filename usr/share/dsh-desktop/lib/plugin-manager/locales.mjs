@@ -61,7 +61,8 @@ export const LOCALES = {
     recoveryLog: 'Open Harness log',
     recoveryTechnical: 'View technical details',
     recoverySafetyNote: 'Your workspaces, sessions, model settings, and other plugins will not be removed.',
-    externalComponentsNotice: 'This plugin may install system components outside DSH Desktop. DSH Desktop does not manage systemd units, autostart entries, or cron jobs; review the plugin documentation before removing it.'
+    externalComponentsNotice: 'This plugin may install system components outside DSH Desktop. DSH Desktop does not manage systemd units, autostart entries, or cron jobs; review the plugin documentation before removing it.',
+    noCompatibleUpdate: 'No compatible update is available. Uninstall is the recommended action; you can check again in case a market update has landed.'
   },
   zh: {
     nav: '插件市场',
@@ -123,7 +124,8 @@ export const LOCALES = {
     recoveryLog: '打开 Harness 日志',
     recoveryTechnical: '查看技术详情',
     recoverySafetyNote: '你的工作区、会话、模型设置和其他插件不会被移除。',
-    externalComponentsNotice: '此插件可能在 DSH Desktop 之外安装系统组件。DSH Desktop 不管理系统单元、自启动项或定时任务；卸载前请查阅插件文档。'
+    externalComponentsNotice: '此插件可能在 DSH Desktop 之外安装系统组件。DSH Desktop 不管理系统单元、自启动项或定时任务；卸载前请查阅插件文档。',
+    noCompatibleUpdate: '没有可用的兼容更新。建议卸载该插件；也可以重新检查，看看市场上是否已有新版本。'
   }
 }
 

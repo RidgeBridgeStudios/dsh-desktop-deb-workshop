@@ -40,6 +40,20 @@ test('a failing entry emits one structured report and rethrows', async (t) => {
   assert.equal(lines.length, 1)
 })
 
+test('an import failure without an inferrable package emits no report', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-bootstrap-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const entry = join(dir, 'entry.mjs')
+  await writeFile(entry, "throw new Error('boom with no resolvable package name')\n", 'utf8')
+
+  const reports = []
+  await assert.rejects(
+    () => runHarnessEntry({ entryPath: entry, report: (failure) => reports.push(failure) }),
+    /boom/u
+  )
+  assert.equal(reports.length, 0)
+})
+
 test('a successful entry emits no report', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-bootstrap-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

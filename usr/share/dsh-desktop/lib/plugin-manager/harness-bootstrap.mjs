@@ -27,12 +27,12 @@ export async function runHarnessEntry(options) {
     return { ok: true }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    report({
-      stage: 'import',
-      packageName: inferFailurePackage(message) ?? 'unknown',
-      chain: [],
-      message
-    })
+    const packageName = inferFailurePackage(message)
+    // Emit only fields actually known. A fabricated "unknown" component or an
+    // absent owner would invite callers to trust provenance we do not have.
+    if (packageName !== undefined) {
+      report({ stage: 'import', packageName, chain: [], message })
+    }
     throw error
   }
 }

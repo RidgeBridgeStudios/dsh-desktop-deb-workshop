@@ -165,13 +165,20 @@ export function uniqueOrphans(targetClosure, otherClosures) {
 /**
  * Tombstone enforcement: a plugin mid-removal must not be composed even if a
  * projection or shared-tree repair would otherwise resurrect it.
+ *
+ * This is a BOOT path. It clears the generation pointer, the projected deps and
+ * the bundle entry, then proceeds — a stale pointer must never become a boot
+ * failure. Pass `strict: true` only for a live mid-session call, where the
+ * target still being composed is a caller error.
  */
 export async function enforcePendingPluginRemovals(options) {
   const {
     dshHome,
     disableGeneration,
+    removeProjected,
     readBundles,
-    removeFromBundles
+    removeFromBundles,
+    strict = false
   } = options
   const ledger = await readLedger(dshHome)
   const blocking = Object.values(ledger.removals).filter((entry) => BLOCKING_STATUSES.has(entry.status))
@@ -180,12 +187,16 @@ export async function enforcePendingPluginRemovals(options) {
   const names = [...new Set(blocking.map((entry) => entry.pluginName))].sort()
   for (const name of names) {
     if (disableGeneration !== undefined) await disableGeneration(name)
+    if (removeProjected !== undefined) await removeProjected(name)
   }
 
   const bundles = await readBundles()
   const composed = names.filter((name) => bundles.includes(name))
-  if (composed.length > 0) {
+  if (composed.length > 0 && removeFromBundles !== undefined) {
     await removeFromBundles(composed)
+  }
+
+  if (strict) {
     const after = await readBundles()
     const remaining = names.filter((name) => after.includes(name))
     if (remaining.length > 0) {

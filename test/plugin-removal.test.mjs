@@ -169,15 +169,45 @@ test('tombstone clears a generation pointer and removes the bundle entry', async
   assert.deepEqual(bundles, ['@deepseek-ai/dsh-base'])
 })
 
-test('tombstone throws if the plugin is still composed', async (t) => {
+test('a crashed uninstall still boots: the tombstone clears composition without throwing', async (t) => {
+  const home = await scratch(t)
+  // Crash between writing the ledger and detaching: plugin still composed.
+  await beginRemoval({ dshHome: home, pluginName: 'example-plugin' })
+  let bundles = ['@deepseek-ai/dsh-base', 'example-plugin']
+  const projected = []
+  const generations = []
+
+  const names = await enforcePendingPluginRemovals({
+    dshHome: home,
+    disableGeneration: async (name) => { generations.push(name) },
+    removeProjected: async (name) => { projected.push(name) },
+    readBundles: async () => bundles,
+    removeFromBundles: async (targets) => {
+      bundles = bundles.filter((name) => !targets.includes(name))
+    }
+  })
+
+  assert.deepEqual(names, ['example-plugin'])
+  assert.deepEqual(generations, ['example-plugin'])
+  assert.deepEqual(projected, ['example-plugin'])
+  assert.deepEqual(bundles, ['@deepseek-ai/dsh-base'])
+
+  // The tombstone is still present so the removal can complete later.
+  const ledger = await readLedger(home)
+  const entry = Object.values(ledger.removals)[0]
+  assert.equal(entry.pluginName, 'example-plugin')
+  assert.equal(entry.status, 'disabled')
+})
+
+test('a strict live call rejects a still-composed target', async (t) => {
   const home = await scratch(t)
   await beginRemoval({ dshHome: home, pluginName: 'example-plugin' })
   await assert.rejects(
     () => enforcePendingPluginRemovals({
       dshHome: home,
-      disableGeneration: async () => undefined,
       readBundles: async () => ['@deepseek-ai/dsh-base', 'example-plugin'],
-      removeFromBundles: async () => undefined
+      removeFromBundles: async () => undefined,
+      strict: true
     }),
     /still composed/u
   )

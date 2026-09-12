@@ -615,6 +615,42 @@ Zero owners → `[]`; multiple owners → `[]`. Tests cover unique, zero and
 multiple matches for each path, and `buildRecoveryPlan` never falls back to all
 plugins. There is no "uninstall everything suspicious" action.
 
+### Correction 1 — tombstone is fail-inert on boot
+
+`enforcePendingPluginRemovals` is a **boot path**: it clears the generation
+pointer, the projected deps and the bundle entry, then proceeds. It no longer
+throws when the plugin is still composed; a stale pointer must never become a
+boot failure. `strict: true` exists only for a live mid-session call, where the
+target still being composed is a caller error. A crashed uninstall (tombstone
+written, plugin still in bundles, plugin still projected) is tested to boot
+successfully with the plugin absent from composition and the tombstone retained.
+Unverified removals still set `shouldDeferProfileMaintenance`, which pauses
+migration/shared-tree maintenance that could resurrect the plugin.
+
+### Correction 2 — what the bootstrap report actually carries
+
+`harness-bootstrap.mjs` walks nothing itself, so on an import failure it emits
+only what it can derive from the error message:
+
+| Field | Emitted on bootstrap import failure |
+| --- | --- |
+| `v` | `1` |
+| `phase` (`stage`) | `import` |
+| failing component (`packageName`) | only when inferrable from the message; **no report is emitted otherwise** |
+| entry chain (`chain`) | `[]` (not available) |
+| root package (`owner`) | **absent** (not available) |
+| loaded version | **absent** |
+| package directory | **absent** |
+| plugin config | never |
+
+Because paths 2 and 3 depend on `chain`/`owner`, a structured report without
+provenance is never mixed with log guesses: `detectPluginRecovery` reports
+`provenance: false` and `buildRecoveryPlan` returns no candidate rather than a
+guess. `detection.mjs` still implements all five paths for the case where a
+report or overlay does carry provenance; a fuller structured report (owner,
+chain, version, directory) requires upstream DSH cooperation or a loader
+overlay, which is the documented gap.
+
 ### D. Uninstall ledger
 
 States `disabled → removed → bootVerifiedAt → backupDeletedAt`, with
@@ -667,3 +703,73 @@ Safe Mode and recovery copy.
   emits a best-effort report otherwise.
 - Real removal operations (backup copy, legacy detach, generation disable) are
   injected; concrete wiring lands with the orchestration integration.
+
+---
+
+## Phase 7 — Compatibility & upgrades (complete)
+
+### Registry selection (mirrors the reference, not inverted)
+
+`market-registry.mjs` exports `DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org'`
+and `REGION_REGISTRY = { global: npmjs, china: 'https://mirrors.cloud.tencent.com/npm' }`.
+`resolveMarketRegistry` precedence, exactly:
+1. explicit `--registry`/`--config.registry` argument → that URL;
+2. `npm_config_registry` set → `null` (never overwrite the caller's choice);
+3. `DSHM_NPM_MIRROR` → that URL;
+4. persisted region `china` → Tencent; `global`/absent/unknown → `null` (do not
+   pin over the user's `~/.npmrc`).
+No new fallback chain.
+
+### A. Version selection rules
+
+Candidate set: `> installed` and `<= latest`, excluding deprecated versions,
+prereleases for stable installs, and any version failing a peer range,
+`engines.dsh`, `dsh.minVersion`, or the removed-dependency rule. Selection is
+the newest compatible. Empty set with `latest > installed` returns the
+**`latest-anyway` sentinel** (a distinct, warned action) — never an empty result
+and never a silent fallback. Pre-release installs accept prerelease candidates;
+stable installs do not. `@deepseek-ai/cordis` is exempt from peer checks.
+Rules and selections are tested one per rule, including newer-incompatible →
+intermediate, no-compatible → sentinel, deprecated skipped, prerelease/stable
+asymmetry, and each peer/engine/minVersion/removed-dep rejection.
+
+### B. Post-upgrade verification
+
+`upgradePlugin` installs, publishes, then requires a NORMAL-profile start to
+reach the ready signal. Failure (or a false return) yields
+`status: 'unverified'`, `offeredAgain: true`; an injected `revert` is called and
+the plugin returns to the candidate list with a fresh failure record. Install
+failure is reported before verification. Safe Mode never counts.
+
+### C. Batch semantics
+
+`upgradePluginsBatch` is **one** operation: upgrades, then removals, then a
+single normal-profile verification (no restart between the sets). Unknown or
+failed checks are skipped (never converted to uninstall). Partial success is
+preserved and never rolled back; the result reports `upgraded`, `removed`,
+`failures`, `skipped`, `verified`, `stillBlocked`, and `invalidated` (prior
+failure records for verified installs).
+
+### D. No-compatible-update terminal case
+
+`describeNoCompatibleUpdate` offers uninstall and "check again" only:
+`canDowngrade: false`, `canReinstall: false`, with plain copy that no compatible
+update is available and uninstall is recommended. No "try again later" softening.
+
+### Files added
+
+- `market-registry.mjs`, `compatibility.mjs`, `plugin-upgrade.mjs`.
+- `test/market-registry.test.mjs`, `test/compatibility.test.mjs`,
+  `test/plugin-upgrade.test.mjs`.
+- Locales gained `noCompatibleUpdate` (en + zh; now 61 keys each).
+
+### Verification
+
+- `npm test` → `# tests 147 / # pass 147 / # fail 0 / # skipped 0`.
+
+### Deferred
+
+- Recovery-view rendering of the upgrade flows is Phase 10 (Electron wiring);
+  Phase 7 exposes pure planning/application seams plus a thin orchestrator.
+- Network metadata fetching is injected at the call site; the selection logic
+  is pure and fully tested without the network.

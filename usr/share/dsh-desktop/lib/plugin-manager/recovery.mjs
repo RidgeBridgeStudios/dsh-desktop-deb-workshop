@@ -20,7 +20,14 @@ export function buildRecoveryPlan(options = {}) {
 
   const detection = detectPluginRecovery({ candidates, startupFailures, logs, excludedPlugins })
   let plugins = detection.plugins
-  if (plugins.length === 0 && (duplicateLoaderEntryId !== undefined || slotConflictName !== undefined || slotProviders.length > 0)) {
+  // A structured report is never mixed with log guesses: paths 2 and 3 depend
+  // on the entry chain and root package the report carries. Without provenance
+  // the report yields no candidate rather than a guess.
+  if (
+    plugins.length === 0 &&
+    detection.source !== 'structured' &&
+    (duplicateLoaderEntryId !== undefined || slotConflictName !== undefined || slotProviders.length > 0)
+  ) {
     plugins = resolveAttribution(candidates, [], {
       duplicateLoaderEntryId,
       slotConflictName,

@@ -116,8 +116,12 @@ export function detectPluginRecovery(options = {}) {
   } = options
 
   if (startupFailures.length > 0) {
+    const provenance = startupFailures.some(
+      (failure) => failure?.owner !== undefined || (Array.isArray(failure?.chain) && failure.chain.length > 0)
+    )
     return {
       source: 'structured',
+      provenance,
       plugins: resolveStartupFailureOwners(candidates, startupFailures, excludedPlugins),
       logs
     }
@@ -129,7 +133,7 @@ export function detectPluginRecovery(options = {}) {
     if (excludedPlugins.includes(candidate.name)) continue
     if (text.includes(candidate.name)) found.add(candidate.name)
   }
-  return { source: 'logs', plugins: [...found].sort(), logs }
+  return { source: 'logs', provenance: false, plugins: [...found].sort(), logs }
 }
 
 async function readJson(path) {
