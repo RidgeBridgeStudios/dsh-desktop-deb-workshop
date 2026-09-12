@@ -840,9 +840,9 @@ rather than grouped per route commit.
 `ensurePnpmShim(home)` writes `pnpm` and `node` wrapper scripts into `<dshHome>/.desktop-bin/`.
 **Decision**: We retain `<dshHome>/.desktop-bin/` and do not move it to `$XDG_DATA_HOME/dsh-desktop/bin/`.
 **Reasoning**:
-1. **Scoping & Hermetic Isolation**: The shim's sole purpose is to be prepended to `PATH` for DSH-invoked profile operations. Scoping it under `<dshHome>` ensures that any custom or isolated test harness run specifying `$DSH_HOME` remains hermetically self-contained. Placing the shim in `$XDG_DATA_HOME/dsh-desktop/bin/` would create global mutable user state shared across distinct DSH environments, causing test and multi-instance concurrency collisions.
-2. **Lifecycle alignment**: The shim binary wrappers contain paths specific to the active runtime and Electron binary. Keeping them inside `<dshHome>` ensures all state managed by the harness lifecycle lives together, simplifying backup and removal.
-3. **Zero migration risk**: The directory is populated idempotently on demand by `ensurePnpmShim(home)` without needing stateful upgrade migrations.
+1. **Lifetime tracking**: The shim's lifetime should strictly track the profile it operates on. If the user cleans `~/.dsh`, they expect the tooling that writes into `~/.dsh` to be cleaned too. Splitting them means stale shims pointing at a directory that no longer exists.
+2. **Implementation detail, not user software**: The shim is not user-visible software. It is an implementation detail of the profile management system, and it belongs next to the profile.
+3. **Zero migration risk**: The directory is populated idempotently on demand by `ensurePnpmShim(home)` next to the active profile without needing stateful upgrade migrations.
 
 ### 2. Wayland Flag (`--ozone-platform-hint=auto`)
 
@@ -869,8 +869,8 @@ The HMR fallback watches the profile patch layer via `fs.watch`. On default Linu
 | **Invariant 6: Bundled pnpm & Node mode passthrough** | verified by: `test/pnpm-runner.test.mjs`::`buildPnpmEnvironment passes ELECTRON_RUN_AS_NODE through instead of deleting it`, `the packaged pnpm entry executes under a real Electron binary in Node mode` | — |
 | **Invariant 7: Process tree kill & idle timeout** | verified by: `test/pnpm-runner.test.mjs`::`kills the whole process tree on idle, including grandchildren`, `stops an idle pnpm run and reports it` | — |
 | **Invariant 8: Recovery ledger & tombstones** | verified by: `test/plugin-removal.test.mjs`::`a crashed uninstall still boots: the tombstone clears composition without throwing`, `test/startup-failure.test.mjs`::`a structured failure round-trips without any plugin config` | — |
-| **Invariant 9: Safe Mode isolation** | verified by: `test/safe-mode.test.mjs`::`ensures an isolated official-core profile and repairs tampering`, `Safe Mode shares DSH_HOME without touching the normal profile` | — |
-| **Invariant 10: Loopback & origin security guards** | verified by: `test/market-routes.test.mjs`::`isTrustedRequest rejects non-loopback or forwarded headers`, `test/preset-transfer.test.mjs`::`guard: export rejects non-loopback or forwarded headers; import requires loopback + same-origin` | — |
+| **Invariant 9: Runtime stopped during package mutations** | NOT VERIFIED by unit tests (verified by code inspection) | Phase 10 acceptance: live Electron orchestrator stops DSH runtime daemon before package mutation/install/upgrade, and restarts after projection. |
+| **Invariant 10: No network in critical path of recovery** | verified by inspection & unit tests: `test/recovery.test.mjs`, `test/plugin-removal.test.mjs`, `test/safe-mode.test.mjs` (run completely offline without network mocks) | Phase 10 acceptance: verify cold boot into Safe Mode and ledger removal succeed with all network interfaces disabled. |
 | **Ref A: Generation Registry** | verified by: `test/registry.test.mjs` (all 24 tests) | — |
 | **Ref B: Pnpm runner & shim** | verified by: `test/pnpm-runner.test.mjs`, `test/pnpm-runtime.test.mjs` | — |
 | **Ref C: Projection & link swap** | verified by: `test/projection.test.mjs` | — |
@@ -880,7 +880,7 @@ The HMR fallback watches the profile patch layer via `fs.watch`. On default Linu
 | **Ref G: Compatibility & upgrades** | verified by: `test/market-registry.test.mjs`, `test/compatibility.test.mjs`, `test/plugin-upgrade.test.mjs` | — |
 | **Ref H: Preset transfer** | verified by: `test/preset-transfer.test.mjs` (all 19 tests) | — |
 | **Deferred: chrome-sandbox setuid** | NOT VERIFIED — Phase 10 acceptance | `dpkg-deb -c` on final package proves `chrome-sandbox` has permissions `4755`. |
-| **Deferred: systemd user unit & autostart** | NOT VERIFIED — Phase 10 acceptance | Verify installed package places `dsh-desktop.service` in systemd user dir and unit starts cleanly. |
+| **Deferred: systemd launchd-guard equivalent** | N/A on Linux; no unit is installed, no unit is managed, no attribution is attempted | Phase 10 acceptance: verify no systemd unit is installed by the package. |
 | **Deferred: Wayland ozone platform hint** | verified by: `test/wayland.test.mjs`::`launcher passes --ozone-platform-hint=auto to Electron` | — |
 | **Deferred: inotify limits** | Documented under Known Limits (no code change) | Phase 10 acceptance: evaluate bounded startup warning if needed. |
 | **Deferred: XDG paths** | Verified by Phase 9 decision (`dshHome` stays `~/.dsh`, shim stays `<dshHome>/.desktop-bin`) | — |
@@ -919,13 +919,16 @@ grep -rnE "win32|win64|darwin|macos|macOS|junction|taskkill|windowsHide|SIDELINE
 
 ### 7. Audit: Locale Completeness in Code
 
-Every `t('...')` and `t("...")` invocation in `usr/share/dsh-desktop/` was compared against `LOCALES.en` and `LOCALES.zh`:
+Every `t('...')`, `translate(...)`, and `formatMessage(...)` invocation in `usr/share/dsh-desktop/` was compared against `LOCALES.en` and `LOCALES.zh`:
 - **Total keys in `en`**: 61
 - **Total keys in `zh`**: 61
-- **Keys used in code**: 34
+- **Keys actively used in code**: 49 (34 via `t`, 15 via `translate`/`formatMessage`)
 - **Keys used but missing from either locale**: **0** (no missing keys).
-- **Keys defined but unused in current code** (prepared for Phase 10 UI):
-  `nav`, `installing`, `installed`, `retry`, `statusFailed`, `futureUpdates`, `managementTab`, `uninstalling`, `removed`, `uninstallFailed`, `safeMode`, `safeModeSummary`, `safeModeSafetyNote`, `safeModeNoPlugins`, `safeModeSelectPlugins`, `safeModeSelectAll`, `safeModeRemoveSelected`, `safeModeRemoving`, `safeModeRestart`, `safeModeExit`, `safeModeQuit`, `safeModeUpgradeAll`, `safeModeUpgrading`, `recoveryRemoveMany`, `recoveryAutoProcess`, `externalComponentsNotice`, `noCompatibleUpdate`.
+- **Keys defined but unused in current code** (12 keys):
+  - Added in Phase 5 (`market-constants.mjs` & `locales.mjs`) for market management tab / settings page UI:
+    `nav`, `installing`, `installed`, `retry`, `futureUpdates`, `managementTab`, `uninstalling`, `removed`, `uninstallFailed`.
+  - Added in Phase 6 (`safe-mode.mjs` & `locales.mjs`) for Safe Mode batch UI / multi-select:
+    `safeModeSelectPlugins`, `safeModeUpgradeAll`, `safeModeUpgrading`.
 
 ### 8. Dead Code and TODO Scan
 
