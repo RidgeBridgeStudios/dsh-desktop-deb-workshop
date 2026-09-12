@@ -210,21 +210,44 @@ export function apply(ctx, options = {}) {
   const service = options.service ?? createMarketService(options)
   const handler = createMarketRequestHandler(service)
 
-  if (ctx && ctx.webServer) {
-    if (typeof ctx.webServer.get === 'function' && typeof ctx.webServer.post === 'function') {
-      ctx.webServer.get(STATUS_PATH, async (req, res) => {
+  const registerRoutes = (webServer) => {
+    webServer.register({
+      kind: 'exact',
+      path: STATUS_PATH,
+      handler: async (req, res) => {
+        if (req.method !== 'GET') return sendJson(res, 405, { error: 'Request rejected.' })
         if (!isTrustedRequest(req, false)) return sendJson(res, 403, { error: 'Request rejected.' })
         return sendJson(res, 200, await service.status())
-      })
-      ctx.webServer.post(UNINSTALL_PATH, async (req, res) => {
+      }
+    })
+    webServer.register({
+      kind: 'exact',
+      path: UNINSTALL_PATH,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' })
         if (!isTrustedRequest(req, true)) return sendJson(res, 403, { error: 'Request rejected.' })
         const outcome = await service.uninstall()
         if (outcome.kind === 'busy') return sendJson(res, 409, await service.status())
         if (outcome.kind === 'already') return sendJson(res, 200, await service.status())
         if (outcome.kind === 'error') return sendJson(res, 500, await service.status())
         return sendJson(res, 202, await service.status())
+      }
+    })
+  }
+
+  if (ctx) {
+    if (typeof ctx.inject === 'function') {
+      ctx.inject(['webServer'], (webCtx) => {
+        const effectFn = typeof webCtx.effect === 'function' ? webCtx.effect.bind(webCtx) : (fn) => fn()
+        effectFn(() => {
+          if (webCtx.webServer && typeof webCtx.webServer.register === 'function') {
+            registerRoutes(webCtx.webServer)
+          }
+        }, 'dsh-desktop-market-installer: webServer routes')
       })
-    } else if (typeof ctx.webServer.use === 'function') {
+    } else if (ctx.webServer && typeof ctx.webServer.register === 'function') {
+      registerRoutes(ctx.webServer)
+    } else if (ctx.webServer && typeof ctx.webServer.use === 'function') {
       ctx.webServer.use(handler)
     }
   }

@@ -24,8 +24,12 @@ import {
 } from '../lib/plugin-manager/recovery-view.mjs';
 import {
   installMarketShared,
-  uninstallMarketShared
+  uninstallMarketShared,
+  resolveDshEntry
 } from '../lib/plugin-manager/market-backend.mjs';
+import {
+  RECOMMENDED_MARKET_VERSION
+} from '../lib/plugin-manager/market-constants.mjs';
 import {
   dshHome as defaultDshHome,
   LIVE_PROFILE
@@ -417,6 +421,9 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
   const uninstallMarketFn = supervisor.uninstallMarketShared || uninstallMarketShared;
   const relaunchSafeModeFn = supervisor.relaunchSafeMode || relaunchSafeMode;
   const exitSafeModeFn = supervisor.exitSafeMode || exitSafeMode;
+  const resolveDshEntryFn = supervisor.resolveDshEntry || resolveDshEntry;
+  const nodeExecutablePath = supervisor.nodeExecutablePath || process.execPath;
+  const recommendedVersion = supervisor.recommendedVersion || RECOMMENDED_MARKET_VERSION;
   const home = supervisor.dshHome || defaultDshHome();
 
   ipc.handle('harness:restart', async () => {
@@ -425,9 +432,16 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
 
   ipc.handle('market:install', async (event, options = {}) => {
     return withStoppedFn(async () => {
+      let dshEntryPath;
+      try {
+        dshEntryPath = resolveDshEntryFn();
+      } catch {}
       return installMarketFn({
         dshHome: home,
         profile: LIVE_PROFILE,
+        recommendedVersion,
+        dshEntryPath,
+        nodeExecutablePath,
         ...options
       });
     }, supervisor);
@@ -435,9 +449,15 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
 
   ipc.handle('market:uninstall', async (event, options = {}) => {
     return withStoppedFn(async () => {
+      let dshEntryPath;
+      try {
+        dshEntryPath = resolveDshEntryFn();
+      } catch {}
       return uninstallMarketFn({
         dshHome: home,
         profile: LIVE_PROFILE,
+        dshEntryPath,
+        nodeExecutablePath,
         ...options
       });
     }, supervisor);

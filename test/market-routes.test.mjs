@@ -215,14 +215,55 @@ test('Cordis plugin registration attaches routes to webServer', () => {
 
   const registeredRoutes = {}
   const mockWebServer = {
-    get: (path, handler) => { registeredRoutes[`GET ${path}`] = handler },
-    post: (path, handler) => { registeredRoutes[`POST ${path}`] = handler }
+    register: ({ kind, path, handler }) => {
+      registeredRoutes[path] = { kind, handler }
+    }
+  }
+  const mockCtx = {
+    inject: (deps, callback) => {
+      callback({
+        webServer: mockWebServer,
+        effect: (fn) => fn()
+      })
+    }
   }
 
-  const { service, handler } = apply({ webServer: mockWebServer })
-  assert.ok(typeof registeredRoutes[`GET ${STATUS_PATH}`] === 'function')
-  assert.ok(typeof registeredRoutes[`POST ${UNINSTALL_PATH}`] === 'function')
-  assert.equal(registeredRoutes[`POST ${INSTALL_PATH}`], undefined)
+  const { service, handler } = apply(mockCtx)
+  assert.ok(typeof registeredRoutes[STATUS_PATH]?.handler === 'function')
+  assert.ok(typeof registeredRoutes[UNINSTALL_PATH]?.handler === 'function')
+  assert.equal(registeredRoutes[INSTALL_PATH], undefined)
+})
+
+test('Cordis plugin registers exact routes for STATUS and UNINSTALL without registering INSTALL', () => {
+  const registered = []
+  const mockWebServer = {
+    register: (entry) => { registered.push(entry) }
+  }
+  const mockCtx = {
+    inject: (deps, callback) => {
+      assert.deepEqual(deps, ['webServer'])
+      callback({
+        webServer: mockWebServer,
+        effect: (fn) => fn()
+      })
+    }
+  }
+
+  apply(mockCtx)
+
+  const statusRegistration = registered.find((r) => r.path === STATUS_PATH)
+  const uninstallRegistration = registered.find((r) => r.path === UNINSTALL_PATH)
+  const installRegistration = registered.find((r) => r.path === INSTALL_PATH)
+
+  assert.ok(statusRegistration, 'STATUS route must be registered')
+  assert.equal(statusRegistration.kind, 'exact')
+  assert.equal(typeof statusRegistration.handler, 'function')
+
+  assert.ok(uninstallRegistration, 'UNINSTALL route must be registered')
+  assert.equal(uninstallRegistration.kind, 'exact')
+  assert.equal(typeof uninstallRegistration.handler, 'function')
+
+  assert.equal(installRegistration, undefined, 'INSTALL route must not be registered')
 })
 
 test('Cordis client module registers settings slots', () => {

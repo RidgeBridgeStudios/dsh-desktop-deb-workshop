@@ -71,11 +71,15 @@ export function runDshPlugin(options) {
     spawnProcess = spawn
   } = options
 
+  const env = nodeExecutablePath === process.execPath
+    ? { ELECTRON_RUN_AS_NODE: '1', ...environment }
+    : environment
+
   return new Promise((resolve) => {
     const child = spawnProcess(
       nodeExecutablePath,
       [dshEntryPath, 'plugin', '--profile', profile, ...args],
-      { cwd, env: environment, stdio: ['ignore', 'pipe', 'pipe'] }
+      { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] }
     )
     let output = ''
     const collect = (chunk) => {
