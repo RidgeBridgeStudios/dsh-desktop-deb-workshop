@@ -50,6 +50,13 @@ import {
   translate,
   formatMessage
 } from '../lib/plugin-manager/locales.mjs';
+import {
+  checkForUpdates,
+  getAvailableUpdate,
+  setAvailableUpdate
+} from './update-check.mjs';
+
+export const VERSION = '1.0.0';
 
 export function detectLocale(electronApp = electron?.app) {
   if (electronApp && typeof electronApp.getLocale === 'function') {
@@ -859,6 +866,8 @@ export function buildTrayMenuTemplate(options = {}) {
   const isWindowVisible = options.isWindowVisible ?? (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
   const active = options.active ?? dshStatus.active;
   const statusText = active ? t('trayStatusRunning') : t('trayStatusOffline');
+  const availableUpdate = options.availableUpdate ?? getAvailableUpdate();
+  const shellOpener = options.shell || shell;
 
   return [
     {
@@ -869,6 +878,16 @@ export function buildTrayMenuTemplate(options = {}) {
       label: statusText,
       enabled: false
     },
+    ...(availableUpdate ? [
+      { type: 'separator' },
+      {
+        label: `Update available: ${availableUpdate.tag}`,
+        click: async () => {
+          const url = availableUpdate.url || 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases';
+          if (shellOpener) await shellOpener.openExternal(url);
+        }
+      }
+    ] : []),
     { type: 'separator' },
     {
       label: isWindowVisible ? t('trayHide') : t('trayOpen'),
@@ -940,6 +959,34 @@ export function createTray() {
 export function buildAppMenuTemplate(options = {}) {
   const locale = options.locale || detectLocale();
   const t = (key) => translate(locale, key);
+  const availableUpdate = options.availableUpdate ?? getAvailableUpdate();
+  const shellOpener = options.shell || shell;
+
+  const helpSubmenu = [];
+  if (availableUpdate) {
+    helpSubmenu.push({
+      label: `Update available: ${availableUpdate.tag}`,
+      click: async () => {
+        const url = availableUpdate.url || 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases';
+        if (shellOpener) await shellOpener.openExternal(url);
+      }
+    });
+    helpSubmenu.push({ type: 'separator' });
+  }
+  helpSubmenu.push(
+    {
+      label: t('menuDocumentation'),
+      click: async () => {
+        if (shellOpener) await shellOpener.openExternal('https://github.com/deepseek-ai/deepseek-harness');
+      }
+    },
+    {
+      label: t('menuWorkshop'),
+      click: async () => {
+        if (shellOpener) await shellOpener.openExternal('https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop');
+      }
+    }
+  );
 
   return [
     {
@@ -1010,21 +1057,17 @@ export function buildAppMenuTemplate(options = {}) {
     },
     {
       label: t('menuHelp'),
-      submenu: [
-        {
-          label: t('menuDocumentation'),
-          click: async () => {
-            if (shell) await shell.openExternal('https://github.com/deepseek-ai/deepseek-harness');
-          }
-        },
-        {
-          label: t('menuWorkshop'),
-          click: async () => {
-            if (shell) await shell.openExternal('https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop');
-          }
+      submenu: helpSubmenu
+    },
+    ...(availableUpdate ? [
+      {
+        label: `Update available: ${availableUpdate.tag}`,
+        click: async () => {
+          const url = availableUpdate.url || 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases';
+          if (shellOpener) await shellOpener.openExternal(url);
         }
-      ]
-    }
+      }
+    ] : [])
   ];
 }
 
@@ -1043,6 +1086,14 @@ if (app) {
     await checkDshStatus();
     createWindow();
     createTray();
+
+    checkForUpdates({ currentVersion: VERSION }).then((result) => {
+      if (result?.hasUpdate) {
+        setAvailableUpdate(result);
+        setupMenu();
+        updateTrayMenu();
+      }
+    }).catch(() => {});
 
     app.on('activate', () => {
       if (!mainWindow || mainWindow.isDestroyed()) {

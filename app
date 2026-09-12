@@ -1,0 +1,1 @@
+usr/share/dsh-desktop/app
