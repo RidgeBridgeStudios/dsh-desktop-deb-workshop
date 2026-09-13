@@ -31,6 +31,7 @@ case "$1" in
 
         # NOTE: We deliberately preserve ~/.dsh/ so user profiles and chats survive package removal
 
+        rm -f /usr/bin/dsh-desktop /usr/bin/dsh-desktop-daemon /usr/bin/dsh-desktop-upgrade-helper
         ;;
     purge)
         # Remove AppArmor profile if apparmor_parser is available and the

@@ -94,6 +94,11 @@ EOF
                 echo "dsh-desktop: warning: run 'apparmor_parser -r /etc/apparmor.d/usr.bin.dsh-desktop' for details." >&2
             fi
         fi
+
+        # 7. Symlink binaries into /usr/bin
+        ln -sf /usr/lib/dsh-desktop/bin/dsh-desktop /usr/bin/dsh-desktop
+        ln -sf /usr/lib/dsh-desktop/bin/dsh-desktop-daemon /usr/bin/dsh-desktop-daemon
+        ln -sf /usr/lib/dsh-desktop/bin/dsh-desktop-upgrade-helper /usr/bin/dsh-desktop-upgrade-helper
         ;;
 esac
 
