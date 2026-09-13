@@ -1,0 +1,47 @@
+.TH DSH-DESKTOP-DAEMON 1 "September 2026" "dsh-desktop 1.0.0" "User Commands"
+.SH NAME
+dsh-desktop-daemon \- background service runner for DeepSeek Harness
+.SH SYNOPSIS
+.B dsh-desktop-daemon
+.SH DESCRIPTION
+\fBdsh-desktop-daemon\fR executes the DeepSeek Harness (@deepseek-ai/dsh) runtime
+service with the Node.js internal exposure flag (\fB\-\-expose-internals\fR)
+required for plugin hot module replacement (HMR).
+.PP
+\fBNote:\fR This daemon is normally managed and invoked by the systemd user
+service \fBdsh-desktop.service\fR rather than started manually by hand.
+.PP
+Before launching the service, \fBdsh-desktop-daemon\fR verifies that the installed
+Node.js and DeepSeek Harness versions meet runtime requirements, prepares the default
+profile directory and manifest if missing, and ensures bundled package dependencies
+are resolved.
+.SH ENVIRONMENT
+.TP
+.B DSH_HOME
+Base directory for DeepSeek Harness state, user profiles, and installed
+plugins. When unset or empty, defaults to \fI~/.dsh\fR.
+.SH FILES
+.TP
+.I ~/.dsh/
+User runtime directory holding configuration, profiles, and plugins.
+.TP
+.I /usr/lib/dsh-desktop/
+System installation directory containing the launcher, daemon executable,
+and package helper binaries.
+.TP
+.I ~/.dsh/profiles/default/
+Default user profile directory containing active plugin packages and configuration.
+.TP
+.I ~/.dsh/profiles/desktop-safe-mode/
+Crash recovery safe-mode profile used to recover from incompatible plugins while
+preserving shared credentials and workspace state.
+.TP
+.I ~/.dsh/profiles/.generations/
+Content-addressed generation storage for installed plugins and projected symlinks.
+.SH SEE ALSO
+.BR dsh-desktop (1),
+.BR systemctl (1)
+.SH AUTHOR
+RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>
+.SH LICENSE
+MIT License

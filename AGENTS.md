@@ -22,7 +22,7 @@ No project-level JS linter configured. `build.sh` runs `lintian` on the output d
 debian/                                # Debian control metadata, postinst, prerm, postrm
 docs/                                  # Architecture & logging docs (plugin-market-parity.md, logging.md)
 lib/systemd/user/                      # Systemd user service definition (dsh-desktop.service)
-usr/local/bin/                         # CLI and desktop launcher scripts (dsh-desktop, daemon)
+usr/lib/dsh-desktop/bin/               # CLI and desktop launcher scripts (dsh-desktop, daemon)
 usr/share/dsh-desktop/app/             # Electron desktop frontend (main.js, preload.cjs, views)
 usr/share/dsh-desktop/lib/plugin-manager/ # Plugin registry, projection, recovery, and runner engines
 usr/share/dsh-desktop/packages/        # Market installer service package
@@ -55,7 +55,7 @@ test/                                  # Integration & unit test suites (Node.js
 | Preset archive export / import | `usr/share/dsh-desktop/lib/plugin-manager/preset-routes.mjs`, `preset-archive.mjs` |
 | Crash recovery & safe mode | `usr/share/dsh-desktop/lib/plugin-manager/recovery.mjs`, `safe-mode.mjs` |
 | Electron window, tray & splash | `usr/share/dsh-desktop/app/main.js`, `preload.cjs` |
-| Daemon & desktop launcher scripts | `usr/local/bin/dsh-desktop`, `usr/local/bin/dsh-desktop-daemon` |
+| Daemon & desktop launcher scripts | `usr/lib/dsh-desktop/bin/dsh-desktop`, `usr/lib/dsh-desktop/bin/dsh-desktop-daemon` |
 | Debian package assembly & metadata | `debian/control`, `debian/postinst`, `build.sh` |
 
 ## Boundaries

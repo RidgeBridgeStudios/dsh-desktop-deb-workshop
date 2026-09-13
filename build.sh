@@ -98,6 +98,15 @@ cp -r "${SCRIPT_DIR}/usr/"* "${STAGING_DIR}/usr/"
 cp -r "${SCRIPT_DIR}/etc/"* "${STAGING_DIR}/etc/"
 cp -r "${SCRIPT_DIR}/lib/"* "${STAGING_DIR}/lib/"
 
+# Validate AppArmor profile syntax at build time.
+# Fails the build on parse error when apparmor_parser is present (set -e).
+# Silently skipped on hosts without AppArmor (CI, non-AppArmor kernels).
+if command -v apparmor_parser >/dev/null 2>&1; then
+    apparmor_parser -Q "${SCRIPT_DIR}/etc/apparmor.d/usr.bin.dsh-desktop"
+    echo "AppArmor profile parsed OK."
+fi
+
+
 # Vendor the app's bundled production dependencies (exact-pinned pnpm). The
 # installer and package runner resolve pnpm from this closure; a user's system
 # pnpm is never consulted. Run 'npm ci' before building.
@@ -118,8 +127,8 @@ find "$STAGING_DIR" -type d -exec chmod 0755 {} +
 find "$STAGING_DIR" -type f -exec chmod 0644 {} +
 
 # Executable binaries and scripts: 0755
-chmod 0755 "${STAGING_DIR}/usr/local/bin/dsh-desktop"
-chmod 0755 "${STAGING_DIR}/usr/local/bin/dsh-desktop-daemon"
+chmod 0755 "${STAGING_DIR}/usr/lib/dsh-desktop/bin/dsh-desktop"
+chmod 0755 "${STAGING_DIR}/usr/lib/dsh-desktop/bin/dsh-desktop-daemon"
 
 # Maintainer scripts in DEBIAN: 0755
 [ -f "${STAGING_DIR}/DEBIAN/postinst" ] && chmod 0755 "${STAGING_DIR}/DEBIAN/postinst"

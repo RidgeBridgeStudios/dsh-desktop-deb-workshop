@@ -2,7 +2,7 @@
 Name=DSH Desktop
 GenericName=DeepSeek Harness
 Comment=Local-first DeepSeek Harness desktop workspace
-Exec=/usr/local/bin/dsh-desktop
+Exec=/usr/bin/dsh-desktop
 Icon=dsh-desktop
 Terminal=false
 Type=Application

@@ -9,8 +9,8 @@ import {
   profilesRoot
 } from '../usr/share/dsh-desktop/lib/plugin-manager/paths.mjs'
 
-const DAEMON = new URL('../usr/local/bin/dsh-desktop-daemon', import.meta.url)
-const LAUNCHER = new URL('../usr/local/bin/dsh-desktop', import.meta.url)
+const DAEMON = new URL('../usr/lib/dsh-desktop/bin/dsh-desktop-daemon', import.meta.url)
+const LAUNCHER = new URL('../usr/lib/dsh-desktop/bin/dsh-desktop', import.meta.url)
 
 test('LIVE_PROFILE is the profile the daemon actually launches', async () => {
   const daemon = await readFile(DAEMON, 'utf8')
@@ -18,9 +18,10 @@ test('LIVE_PROFILE is the profile the daemon actually launches', async () => {
   assert.ok(launched, 'the daemon must pass --profile to the runtime')
   assert.equal(launched[1], LIVE_PROFILE)
 
-  const seeded = daemon.match(/profiles\/([A-Za-z0-9._-]+)/u)
-  assert.ok(seeded, 'the daemon must seed the profile directory it launches')
-  assert.equal(seeded[1], LIVE_PROFILE)
+  assert.ok(
+    daemon.includes('bootstrap-cli.mjs'),
+    'daemon must invoke bootstrap-cli.mjs to seed the profile'
+  )
 })
 
 test('LIVE_PROFILE is the profile the launcher seeds and starts', async () => {

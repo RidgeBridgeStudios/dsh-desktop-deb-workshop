@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Ensure standard PATH
-export PATH="${HOME:-/root}/.dsh/.desktop-bin:/usr/local/bin:/usr/bin:/bin:${HOME:-/root}/.local/bin:${PATH:-}"
+export PATH="${HOME:-/root}/.dsh/.desktop-bin:/usr/bin:/bin:${HOME:-/root}/.local/bin:${PATH:-}"
 export NODE_PATH="/usr/share/dsh-desktop/node_modules${NODE_PATH:+:$NODE_PATH}"
 
 LOG_DIR="${HOME}/.local/share/dsh-desktop"
@@ -117,12 +117,15 @@ if [ "$DAEMON_STARTED_BY_SYSTEMD" -eq 0 ]; then
     # Fallback to spawning background daemon process
     EXISTING_PID=$(pgrep -f '@deepseek-ai/dsh|node.*dsh' 2>/dev/null | head -n 1 || true)
     if [ -z "$EXISTING_PID" ]; then
-        if [ -x "/usr/local/bin/dsh-desktop-daemon" ]; then
-            nohup /usr/local/bin/dsh-desktop-daemon >> "$LOG_FILE" 2>&1 &
-        else
-            # 4. Critical requirement: pass --expose-internals directly to node
-            nohup node --expose-internals "$DSH_ENTRY" --profile default --no-open >> "$LOG_FILE" 2>&1 &
-        fi
+        for candidate in '/usr/bin/dsh-desktop-daemon' '/usr/lib/dsh-desktop/bin/dsh-desktop-daemon'; do
+            if [ -x "$candidate" ]; then
+                nohup "$candidate" >> "$LOG_FILE" 2>&1 &
+                break
+            fi
+        done
+    else
+        # 4. Critical requirement: pass --expose-internals directly to node
+        nohup node --expose-internals "$DSH_ENTRY" --profile default --no-open >> "$LOG_FILE" 2>&1 &
     fi
 fi
 

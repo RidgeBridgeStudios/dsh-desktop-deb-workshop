@@ -27,6 +27,15 @@ case "$1" in
         fi
 
         # NOTE: We deliberately preserve ~/.dsh/ so user profiles and chats survive package removal
+
+        ;;
+    purge)
+        # Remove AppArmor profile if apparmor_parser is available and the
+        # profile is still present on disk. No-op if AppArmor is not active.
+        if [ -x /usr/sbin/apparmor_parser ] && \
+           [ -f /etc/apparmor.d/usr.bin.dsh-desktop ]; then
+            apparmor_parser -R /etc/apparmor.d/usr.bin.dsh-desktop || true
+        fi
         ;;
 esac
 

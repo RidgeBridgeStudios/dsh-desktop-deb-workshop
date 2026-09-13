@@ -9,8 +9,8 @@ DSH Desktop wraps the official DeepSeek Harness local web UI in an isolated desk
 - [Plugin Market Parity](docs/plugin-market-parity.md): Architecture specifications for plugin generations, recovery states, and preset import/export.
 
 ## Source
-- [Desktop GUI Launcher](usr/local/bin/dsh-desktop): Wayland/X11 launcher script with Electron process wrapper and auto-detection.
-- [Daemon Runner](usr/local/bin/dsh-desktop-daemon): Background harness service supervisor with `--expose-internals` flag passing.
+- [Desktop GUI Launcher](usr/lib/dsh-desktop/bin/dsh-desktop): Wayland/X11 launcher script with Electron process wrapper and auto-detection.
+- [Daemon Runner](usr/lib/dsh-desktop/bin/dsh-desktop-daemon): Background harness service supervisor with `--expose-internals` flag passing.
 - [Electron Main Process](usr/share/dsh-desktop/app/main.js): Desktop window management, system tray integration, health checks, and splash screens.
 - [Electron Preload](usr/share/dsh-desktop/app/preload.cjs): Context bridge exposing IPC methods between Electron renderer and main process.
 - [Plugin Registry](usr/share/dsh-desktop/lib/plugin-manager/registry.mjs): Atomic generation slots, isolation trees, locks, and package manifest management.

@@ -77,6 +77,20 @@ EOF
         elif command -v gtk-update-icon-cache >/dev/null 2>&1; then
             gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
         fi
+
+        # 6. Load AppArmor profile (required on Ubuntu 24.04+ where
+        # kernel.apparmor_restrict_unprivileged_userns=1 blocks Electron's
+        # Chromium zygote from creating unprivileged user namespaces).
+        # Uses command -v rather than -x /usr/sbin/ to handle merged-/usr layouts.
+        # A load failure warns loudly but does not abort dpkg configure.
+        if command -v apparmor_parser >/dev/null 2>&1 && \
+           [ -f /etc/apparmor.d/usr.bin.dsh-desktop ]; then
+            if ! apparmor_parser -r /etc/apparmor.d/usr.bin.dsh-desktop; then
+                echo "dsh-desktop: warning: AppArmor profile failed to load." >&2
+                echo "dsh-desktop: warning: Electron sandbox may fail on Ubuntu 24.04+." >&2
+                echo "dsh-desktop: warning: run 'apparmor_parser -r /etc/apparmor.d/usr.bin.dsh-desktop' for details." >&2
+            fi
+        fi
         ;;
 esac
 

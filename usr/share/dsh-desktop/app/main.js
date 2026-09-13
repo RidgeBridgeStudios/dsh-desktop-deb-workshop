@@ -129,8 +129,8 @@ export function assertTrustedSender(event) {
 
 export function resolveDaemonBin() {
   const daemonCandidates = [
-    '/usr/local/bin/dsh-desktop-daemon',
-    path.resolve(__dirname, '../../../usr/local/bin/dsh-desktop-daemon')
+    '/usr/bin/dsh-desktop-daemon',
+    path.resolve(__dirname, '../../../usr/lib/dsh-desktop/bin/dsh-desktop-daemon')
   ];
   return daemonCandidates.find((p) => fs.existsSync(p)) || daemonCandidates[0];
 }

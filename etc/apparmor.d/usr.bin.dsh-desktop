@@ -1,0 +1,33 @@
+# AppArmor profile for dsh-desktop bundled Electron
+#
+# Required on Ubuntu 24.04+ where kernel.apparmor_restrict_unprivileged_userns=1
+# is the default. Without this profile, Electron's Chromium zygote cannot create
+# the unprivileged user namespace it uses for its sandbox, and startup aborts:
+#   FATAL:zygote_host_impl_linux.cc] Check failed: IsNamespaceSandboxSupported()
+#
+# flags=(unconfined): the process is not confined by this profile; the profile
+# only *grants* the userns permission that the kernel restriction removed.
+# No other line in this body is enforced — they are documentation of intent.
+#
+# Lifecycle:
+#   postinst configure: apparmor_parser -r /etc/apparmor.d/usr.bin.dsh-desktop
+#   postrm purge:       apparmor_parser -R /etc/apparmor.d/usr.bin.dsh-desktop
+#
+# This profile is only needed for the Option C (hermetic-bundle) architecture
+# where the Electron binary lives at /usr/lib/dsh-desktop/electron/electron.
+# Option B (host-Electron) packages ship their own profile for /usr/bin/electron.
+
+profile dsh-desktop /usr/lib/dsh-desktop/electron/electron flags=(unconfined) {
+  # Allow creation of unprivileged user namespaces.
+  # This is the sole permission Ubuntu 24.04 restricts and the sole reason
+  # this profile must exist. Everything else is allowed by unconfined.
+  userns,
+
+  # Documented intent (not enforced under unconfined):
+  #   /usr/lib/dsh-desktop/**              r     -- bundled runtime tree
+  #   owner @{HOME}/.dsh/**               rw     -- user profiles and sessions
+  #   owner @{HOME}/.local/share/dsh-desktop/** rw -- app-local state
+  #   /dev/dri/**                          rw    -- GPU rendering
+  #   /dev/shm/**                          rw    -- Chromium shared memory
+  #   owner /run/user/@{uid}/**            rw    -- IPC sockets via XDG_RUNTIME_DIR
+}

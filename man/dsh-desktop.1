@@ -1,0 +1,70 @@
+.TH DSH-DESKTOP 1 "September 2026" "dsh-desktop 1.0.0" "User Commands"
+.SH NAME
+dsh-desktop \- native desktop launcher for DeepSeek Harness
+.SH SYNOPSIS
+.B dsh-desktop
+[\fB\-\-url=\fR\fIURL\fR]
+[\fB\-\-ozone-platform-hint=\fR\fImode\fR]
+[\fB\-\-daemon\fR | \fB\-\-foreground\fR]
+[\fIOPTIONS\fR...]
+.SH DESCRIPTION
+\fBdsh-desktop\fR is the native desktop launcher and sandboxed Electron frontend
+for DeepSeek Harness (@deepseek-ai/dsh).
+.PP
+On invocation, \fBdsh-desktop\fR ensures that the background runtime service is
+running (starting \fIdsh-desktop.service\fR via \fBsystemctl\fR(1) or falling back
+to launching a background daemon), discovers the loopback port bound by the harness,
+and launches the application window. If an Electron environment is not available,
+it falls back to running supported browsers in application mode or opening the URL
+via \fBxdg-open\fR(1).
+.SH OPTIONS
+.TP
+\fB\-\-url=\fR\fIURL\fR
+Override the target URL to display in the desktop window instead of waiting
+for and discovering the local harness service.
+.TP
+\fB\-\-ozone-platform-hint=\fR\fImode\fR
+Configure the Ozone platform abstraction layer for Chromium/Electron. Defaults
+to \fBauto\fR to automatically negotiate native Wayland or X11 display servers.
+.TP
+\fB\-\-daemon\fR
+Execute the DeepSeek Harness server entry script directly in the foreground
+without launching the desktop user interface.
+.TP
+\fB\-\-foreground\fR
+Alias for \fB\-\-daemon\fR.
+.TP
+\fIOPTIONS\fR
+Additional options are passed directly to the underlying Electron application.
+.SH ENVIRONMENT
+.TP
+.B DSH_HOME
+Base directory for DeepSeek Harness state, user profiles, and installed
+plugins. When unset or empty, defaults to \fI~/.dsh\fR.
+.TP
+.B DSH_URL
+Fallback target URL when no running harness instance can be discovered from
+logs or open loopback ports. Defaults to \fIhttp://127.0.0.1:3080\fR.
+.TP
+.B XDG_SESSION_TYPE
+Identifies the display server protocol (\fIwayland\fR or \fIx11\fR), used
+by Electron and the Ozone platform layer to enable native Wayland rendering
+and hardware acceleration.
+.SH FILES
+.TP
+.I ~/.dsh/
+User runtime directory holding configuration, profiles, and plugins.
+.TP
+.I /usr/lib/dsh-desktop/
+System installation directory containing the launcher, daemon executable,
+and package helper binaries.
+.TP
+.I ~/.local/share/dsh-desktop/dsh.log
+Default log file for harness daemon output and diagnostics.
+.SH SEE ALSO
+.BR dsh-desktop-daemon (1),
+.BR systemctl (1)
+.SH AUTHOR
+RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>
+.SH LICENSE
+MIT License

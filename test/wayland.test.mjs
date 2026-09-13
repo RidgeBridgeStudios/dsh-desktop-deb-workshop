@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const LAUNCHER = new URL('../usr/local/bin/dsh-desktop', import.meta.url)
+const LAUNCHER = new URL('../usr/lib/dsh-desktop/bin/dsh-desktop', import.meta.url)
 
 test('launcher passes --ozone-platform-hint=auto to Electron', async () => {
   const launcher = await readFile(LAUNCHER, 'utf8')

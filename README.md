@@ -23,7 +23,7 @@ The upstream `dataelement/dsh-desktop` repository does not ship official Linux b
 4. **Native `sharp` Binaries**:
    Running `npm install` directly inside the `@deepseek-ai/dsh` directory triggers HTTP 404 errors due to the unreleased private `@deepseek-ai/dsh-experimental-code-runtime-python` dependency. `sharp` is not bundled into the Debian package to avoid maintainer-script network calls and directory mutations. `sharp` must be installed by the user's package manager (`sudo npm install -g --os=linux --cpu=x64 sharp @img/sharp-linux-x64`) or by the launcher's first-run setup. The launcher and daemon configure `NODE_PATH` so `sharp` resolves cleanly.
 5. **Profile Initialization Race Condition (`ERR_PNPM_PACKAGE_JSON_EXISTS`)**:
-   Fresh installations lack `~/.dsh/profiles/default`. `dsh-desktop` creates a valid minimal `package.json` upfront, and first launch completes profile dependency setup, preventing initialization races and permission mismatches. Systemd serves as the single lifecycle owner for the background daemon.
+   Fresh installations lack `~/.dsh/profiles/default`. `dsh-desktop` creates a valid minimal `package.json` upfront, and first launch completes profile dependency setup, preventing initialization races and permission mismatches. The systemd user service is the only lifecycle owner for the background daemon.
 
 ---
 
@@ -102,6 +102,11 @@ If you prefer building or installing manually, or downloaded the `dsh-desktop_1.
 
    ```bash
    sudo apt install ./dsh-desktop_1.0.0_amd64.deb
+   ```
+
+   The systemd user service is the only lifecycle owner for the background daemon. For headless installations (or environments without an active graphical desktop session), manually enable and start the service:
+   ```bash
+   systemctl --user enable --now dsh-desktop.service
    ```
 
 ---
@@ -197,10 +202,7 @@ Or by syslog tag:
 ```bash
 journalctl --user -t dsh-desktop -f
 ```
-For standalone or fallback executions outside systemd, output is logged at:
-```bash
-tail -f ~/.local/share/dsh-desktop/dsh.log
-```
+
 
 ### Restart Service
 ```bash

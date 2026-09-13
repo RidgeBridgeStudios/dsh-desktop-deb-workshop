@@ -1,16 +1,20 @@
 [Unit]
 Description=DeepSeek Harness Daemon (DSH Desktop)
-After=network.target
+After=graphical-session.target network.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/dsh-desktop-daemon
+ExecStart=/usr/bin/dsh-desktop-daemon
 Restart=on-failure
-RestartSec=5
-Environment=PATH=%h/.dsh/.desktop-bin:/usr/local/bin:/usr/bin:/bin:%h/.local/bin
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=5
+Environment=PATH=%h/.dsh/.desktop-bin:/usr/bin:/bin
 SyslogIdentifier=dsh-desktop
 StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
+
