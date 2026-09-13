@@ -363,11 +363,15 @@ export async function restartDshBackend(options = {}) {
     } catch {
       outFd = 'ignore';
     }
+    if (!fs.existsSync(daemonBin)) return false;
     const child = spawn(daemonBin, daemonArgs, {
       detached: true,
       stdio: ['ignore', outFd, outFd]
     });
     child.unref();
+    child.once('error', (err) => {
+      process.stderr.write(`dsh-desktop: failed to spawn daemon: ${err.message}\n`);
+    });
     return true;
   }
 

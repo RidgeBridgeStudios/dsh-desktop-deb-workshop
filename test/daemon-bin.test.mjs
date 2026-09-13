@@ -24,3 +24,16 @@ test("resolveDaemonBin: candidate list in main.js contains required paths and nu
   assert.ok(mainContent.includes("?? null"))
 })
 
+test("restartDshBackend: checks existsSync before spawn and attaches error listener on child", () => {
+  const mainContent = fs.readFileSync("usr/share/dsh-desktop/app/main.js", "utf8")
+  assert.ok(mainContent.includes("if (!fs.existsSync(daemonBin)) return false;"))
+
+  const restartIdx = mainContent.indexOf("export async function restartDshBackend")
+  assert.ok(restartIdx !== -1)
+  const spawnIdx = mainContent.indexOf("spawn(daemonBin, daemonArgs", restartIdx)
+  assert.ok(spawnIdx !== -1)
+  const afterSpawn = mainContent.slice(spawnIdx, spawnIdx + 500)
+  assert.ok(afterSpawn.includes("child.once('error'"))
+})
+
+
