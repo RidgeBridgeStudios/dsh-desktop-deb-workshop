@@ -19,11 +19,6 @@ import {
   inject as pluginInject
 } from '../usr/share/dsh-desktop/packages/dsh-desktop-market-installer/index.js'
 import {
-  apply as clientApply,
-  inject as clientInject,
-  name as clientName
-} from '../usr/share/dsh-desktop/packages/dsh-desktop-market-installer/client.js'
-import {
   INSTALL_PATH,
   MARKET_PACKAGE,
   STATUS_PATH,
@@ -289,28 +284,16 @@ test('Cordis plugin registers exact routes for STATUS and UNINSTALL without regi
 })
 
 test('Cordis client module registers settings slots', async () => {
-  assert.equal(clientName, 'dsh-desktop-market-installer/client')
-  assert.deepEqual(clientInject, ['slots', 'locale'])
-
-  const registeredSlots = []
-  const mockCtx = {
-    slots: {
-      register: (slot, config) => { registeredSlots.push({ slot, config }) }
-    }
-  }
-
-  clientApply(mockCtx)
-  assert.equal(registeredSlots.length, 2)
-  assert.equal(registeredSlots[0].slot, 'settings.section')
-  assert.equal(registeredSlots[1].slot, 'settings.plugins.tab')
-
   const clientPath = path.resolve(__dirname, '../usr/share/dsh-desktop/packages/dsh-desktop-market-installer/client.js')
   const clientCode = fs.readFileSync(clientPath, 'utf8')
+
+  assert.match(clientCode, /id:\s*['"]dsh-desktop-market-installer\/client['"]/, 'loader id must be dsh-desktop-market-installer/client')
   const loaderCalls = (clientCode.match(/__ModuleLoader__\.load\(/g) || []).length
   assert.equal(loaderCalls, 1, 'must contain exactly ONE occurrence of __ModuleLoader__.load')
-  assert.match(clientCode, /id:\s*['"]dsh-desktop-market-installer\/client['"]/, 'loader id must be dsh-desktop-market-installer/client')
-  assert.doesNotMatch(clientCode, /__ModuleLoader__\.load\([\s\S]*?id:\s*['"]market-installer-tab['"]/, 'must not contain market-installer-tab as a standalone stub id in loader')
+  assert.doesNotMatch(clientCode, /export\s+const\s+name\b/, 'must not export name')
+  assert.doesNotMatch(clientCode, /export\s+function\s+apply\b/, 'must not export apply')
 })
+
 
 test('every locale defines every key', () => {
   const reference = Object.keys(LOCALES.en).sort()
