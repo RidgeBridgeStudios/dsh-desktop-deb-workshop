@@ -333,3 +333,18 @@ test('installCommunityPluginAsGeneration rejects before calling installGeneratio
   assert.equal(mockedInstallGenerationCalled, false)
 })
 
+test('loopback-guard standalone module exports helpers and breaks cycle with preset-routes', async () => {
+  const guard = await import('../usr/share/dsh-desktop/lib/plugin-manager/loopback-guard.mjs')
+  assert.equal(typeof guard.isLoopback, 'function')
+  assert.equal(typeof guard.hasForwardedAddress, 'function')
+  assert.equal(typeof guard.isTrustedRequest, 'function')
+  assert.equal(typeof guard.sendJson, 'function')
+  assert.ok(Array.isArray(guard.FORWARDED_HEADERS))
+
+  const presetRoutesContent = fs.readFileSync(
+    path.join(__dirname, '../usr/share/dsh-desktop/lib/plugin-manager/preset-routes.mjs'),
+    'utf8'
+  )
+  assert.ok(!presetRoutesContent.includes('packages/dsh-desktop-market-installer'))
+})
+

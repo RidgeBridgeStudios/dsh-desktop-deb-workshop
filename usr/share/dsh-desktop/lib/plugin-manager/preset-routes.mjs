@@ -15,7 +15,7 @@ import {
   PRESET_ID_PATTERN
 } from './preset-archive.mjs'
 import { dshHome as defaultDshHome, installationClosureDir, LIVE_PROFILE, profileDirectory } from './paths.mjs'
-import { isTrustedRequest, sendJson } from '../../packages/dsh-desktop-market-installer/index.js'
+import { isTrustedRequest, sendJson } from './loopback-guard.mjs'
 
 export const PRESET_EXPORT_PATH = '/api/agent-preset.export'
 export const PRESET_IMPORT_PATH = '/api/agent-preset.import'
