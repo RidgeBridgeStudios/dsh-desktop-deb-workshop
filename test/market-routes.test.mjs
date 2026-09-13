@@ -1,6 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 import {
   apply,
@@ -282,7 +288,7 @@ test('Cordis plugin registers exact routes for STATUS and UNINSTALL without regi
   assert.equal(installRegistration, undefined, 'INSTALL route must not be registered')
 })
 
-test('Cordis client module registers settings slots', () => {
+test('Cordis client module registers settings slots', async () => {
   assert.equal(clientName, 'dsh-desktop-market-installer/client')
   assert.deepEqual(clientInject, ['slots', 'locale'])
 
@@ -297,6 +303,13 @@ test('Cordis client module registers settings slots', () => {
   assert.equal(registeredSlots.length, 2)
   assert.equal(registeredSlots[0].slot, 'settings.section')
   assert.equal(registeredSlots[1].slot, 'settings.plugins.tab')
+
+  const clientPath = path.resolve(__dirname, '../usr/share/dsh-desktop/packages/dsh-desktop-market-installer/client.js')
+  const clientCode = fs.readFileSync(clientPath, 'utf8')
+  const loaderCalls = (clientCode.match(/__ModuleLoader__\.load\(/g) || []).length
+  assert.equal(loaderCalls, 1, 'must contain exactly ONE occurrence of __ModuleLoader__.load')
+  assert.match(clientCode, /id:\s*['"]dsh-desktop-market-installer\/client['"]/, 'loader id must be dsh-desktop-market-installer/client')
+  assert.doesNotMatch(clientCode, /__ModuleLoader__\.load\([\s\S]*?id:\s*['"]market-installer-tab['"]/, 'must not contain market-installer-tab as a standalone stub id in loader')
 })
 
 test('every locale defines every key', () => {

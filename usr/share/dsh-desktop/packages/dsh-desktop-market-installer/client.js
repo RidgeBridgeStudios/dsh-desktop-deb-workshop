@@ -19,7 +19,7 @@ export function apply(ctx) {
 
 if (typeof window !== "undefined" && window.__ModuleLoader__ && typeof window.__ModuleLoader__.load === "function") {
 window.__ModuleLoader__.load({
-  id: 'dsh-desktop-market-installer',
+  id: 'dsh-desktop-market-installer/client',
   factory: (require) => {
     const module = { exports: {} }
     const exports = module.exports
@@ -721,15 +721,4 @@ window.__ModuleLoader__.load({
     return module.exports
   }
 })
-  window.__ModuleLoader__.load({
-    id: "dsh-desktop-market-installer/client",
-    factory: (require, exports, module) => {
-      module.exports = {
-        name,
-        inject,
-        apply
-      };
-      return module.exports;
-    }
-  });
 }
