@@ -185,3 +185,49 @@ test('createSnapshot: sanitizes reason in archive basename', async () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('pruneSnapshots with reason a(b does not throw', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-snapshot-test-'));
+  try {
+    const backupsDir = path.join(tmp, 'backups');
+    fs.mkdirSync(backupsDir, { recursive: true });
+    await assert.doesNotReject(() => pruneSnapshots({ dshHome: tmp, reason: 'a(b' }));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('pruneSnapshots with reason ../../etc/passwd does not throw and preserves unrelated archives', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-snapshot-test-'));
+  try {
+    const backupsDir = path.join(tmp, 'backups');
+    fs.mkdirSync(backupsDir, { recursive: true });
+    const file = path.join(backupsDir, 'snapshot-2026-manual.tar.gz');
+    fs.writeFileSync(file, 'archive');
+    await assert.doesNotReject(() => pruneSnapshots({ dshHome: tmp, reason: '../../etc/passwd', keep: 0 }));
+    assert.ok(fs.existsSync(file), 'unrelated archive must remain');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('pruneSnapshots with reason pre.up only removes matching archive, not preXup', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-snapshot-test-'));
+  try {
+    const backupsDir = path.join(tmp, 'backups');
+    fs.mkdirSync(backupsDir, { recursive: true });
+    const targetFile = path.join(backupsDir, 'snapshot-2026-pre.up.tar.gz');
+    const otherFile = path.join(backupsDir, 'snapshot-2026-preXup.tar.gz');
+    fs.writeFileSync(targetFile, 'target');
+    fs.writeFileSync(otherFile, 'other');
+
+    const pruned = await pruneSnapshots({ dshHome: tmp, reason: 'pre.up', keep: 0 });
+    assert.equal(pruned.length, 1);
+    assert.equal(pruned[0], targetFile);
+    assert.equal(fs.existsSync(targetFile), false);
+    assert.equal(fs.existsSync(otherFile), true);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+

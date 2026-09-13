@@ -81,9 +81,11 @@ export async function pruneSnapshots(options = {}) {
     ? options.keep
     : defaultKeep;
 
+  const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
   const entries = fs.readdirSync(backupsDir, { withFileTypes: true });
   const regex = reason
-    ? new RegExp(`^.*-${reason}\\.tar\\.(zst|gz)$`)
+    ? new RegExp(`^.*-${escapeRegex(reason)}\\.tar\\.(zst|gz)$`)
     : /^.*\\.tar\\.(zst|gz)$/;
 
   const archives = [];
