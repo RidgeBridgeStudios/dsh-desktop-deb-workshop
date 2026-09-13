@@ -231,7 +231,7 @@ export function apply(ctx, options = {}) {
   const handler = createMarketRequestHandler(service)
 
   const home = options.home ?? options.dshHome ?? defaultDshHome()
-  const roots = options.roots ?? options.presetRoots ?? [{ path: join(home, '.dsh/agent-presets'), trust: 'user' }]
+  const roots = options.roots ?? options.presetRoots ?? [{ path: join(home, '.agent-presets'), trust: 'user' }]
   const presetHandler = options.presetHandler ?? createPresetRequestHandler({
     dshHome: home,
     roots,

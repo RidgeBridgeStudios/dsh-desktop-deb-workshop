@@ -94,7 +94,7 @@ export function resolveScanRootFunction(scanRootFn, home = defaultDshHome()) {
 }
 
 export function defaultPresetRoots(home = defaultDshHome()) {
-  return [{ path: join(home, '.dsh/agent-presets'), trust: 'user' }]
+  return [{ path: join(home, '.agent-presets'), trust: 'user' }]
 }
 
 export async function handlePresetExport(req, res, options = {}) {

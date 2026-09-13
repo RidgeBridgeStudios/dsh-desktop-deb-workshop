@@ -17,6 +17,7 @@ import {
 import {
   createPresetRequestHandler,
   defaultHarnessBase,
+  defaultPresetRoots,
   handlePresetExport,
   handlePresetImportInstall,
   handlePresetImportPreview,
@@ -26,6 +27,12 @@ import {
 } from '../usr/share/dsh-desktop/lib/plugin-manager/preset-routes.mjs'
 import { dshHome, LIVE_PROFILE } from '../usr/share/dsh-desktop/lib/plugin-manager/paths.mjs'
 import { createServer } from 'node:http'
+
+test('defaultPresetRoots: resolves to ~/.dsh/.agent-presets without doubled .dsh', () => {
+  const roots = defaultPresetRoots('/home/u/.dsh')
+  assert.equal(roots[0].path, '/home/u/.dsh/.agent-presets')
+  assert.doesNotMatch(roots[0].path, /\/\.dsh\/\.dsh\//)
+})
 
 test('constants: size caps match the specification directly', () => {
   assert.equal(MAX_FILES, 512)
