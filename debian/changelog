@@ -1,3 +1,13 @@
+dsh-desktop (1.0.1) stable; urgency=medium
+
+  * Pure JS Debian version comparator in update-check.
+  * Guard binary symlink creation in postinst and deduplicate postrm cleanup.
+  * Ensure ~/.dsh/.agent-presets directory creation on bootstrap.
+  * Remove unused market-client module and break preset loopback cycle.
+  * Security hardening: sanitize reason in snapshot pruning and reject symlinks in sourceDirectory.
+
+ -- RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>  Sun, 13 Sep 2026 13:26:00 +0200
+
 dsh-desktop (1.0.0) stable; urgency=medium
 
   * Initial release of dsh-desktop for Ubuntu and Zorin OS.
