@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
 import {
@@ -55,6 +58,16 @@ test('compareDebianLt compares versions correctly', () => {
   assert.equal(compareDebianLt('1.1.0', '1.0.0'), false);
   assert.equal(compareDebianLt('1.0.0', '1.0.0'), false);
   assert.equal(compareDebianLt('1.0.0-1', '1.0.0-2'), true);
+  assert.equal(compareDebianLt('1.0.0~rc1', '1.0.0'), true);
+  assert.equal(compareDebianLt('1.0.0', '1.0.0~rc1'), false);
+  assert.equal(compareDebianLt('1:0', '2:0'), true);
+  assert.equal(compareDebianLt('1.0.0-1', '1.0.0-1'), false);
+
+  const src = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '../usr/share/dsh-desktop/app/update-check.mjs'),
+    'utf8'
+  );
+  assert.doesNotMatch(src, /spawnSync/);
 });
 
 test('parseDshVersionFromPackages extracts dsh-desktop version', () => {

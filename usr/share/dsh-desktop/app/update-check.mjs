@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
 
 export const DEFAULT_REPO_URL =
@@ -32,14 +31,79 @@ export function formatUpdateLabel(version) {
   return `Update available: ${display}`;
 }
 
+function compareDebianParts(s1, s2) {
+  let i = 0;
+  let j = 0;
+  function order(c) {
+    if (c === '~') return -1;
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) return c.charCodeAt(0);
+    if (c === '') return 0;
+    return c.charCodeAt(0) + 256;
+  }
+  while (i < s1.length || j < s2.length) {
+    let diff = 0;
+    while ((i < s1.length && !/\d/.test(s1[i])) || (j < s2.length && !/\d/.test(s2[j]))) {
+      const c1 = i < s1.length ? s1[i] : '';
+      const c2 = j < s2.length ? s2[j] : '';
+      if (c1 !== c2) {
+        diff = order(c1) - order(c2);
+        break;
+      }
+      i++;
+      j++;
+    }
+    if (diff !== 0) return diff;
+    while (i < s1.length && !/\d/.test(s1[i])) i++;
+    while (j < s2.length && !/\d/.test(s2[j])) j++;
+
+    let num1 = 0;
+    let num2 = 0;
+    const startI = i;
+    while (i < s1.length && /\d/.test(s1[i])) {
+      num1 = num1 * 10 + Number(s1[i]);
+      i++;
+    }
+    const startJ = j;
+    while (j < s2.length && /\d/.test(s2[j])) {
+      num2 = num2 * 10 + Number(s2[j]);
+      j++;
+    }
+    if (startI < i || startJ < j) {
+      if (num1 !== num2) return num1 - num2;
+    }
+  }
+  return 0;
+}
+
+function parseDebianVersion(v) {
+  const str = String(v ?? '');
+  let epoch = 0;
+  let rest = str;
+  const colonIdx = str.indexOf(':');
+  if (colonIdx !== -1 && /^\d+$/.test(str.slice(0, colonIdx))) {
+    epoch = parseInt(str.slice(0, colonIdx), 10);
+    rest = str.slice(colonIdx + 1);
+  }
+  const dashIdx = rest.lastIndexOf('-');
+  let upstream = rest;
+  let revision = '';
+  if (dashIdx !== -1) {
+    upstream = rest.slice(0, dashIdx);
+    revision = rest.slice(dashIdx + 1);
+  }
+  return { epoch, upstream, revision };
+}
+
 export function compareDebianLt(v1, v2, customExec) {
   if (typeof customExec === 'function') {
     return customExec(v1, v2);
   }
-  const res = spawnSync('dpkg', ['--compare-versions', String(v1), 'lt', String(v2)], {
-    stdio: 'ignore'
-  });
-  return res.status === 0;
+  const p1 = parseDebianVersion(v1);
+  const p2 = parseDebianVersion(v2);
+  if (p1.epoch !== p2.epoch) return p1.epoch < p2.epoch;
+  const upDiff = compareDebianParts(p1.upstream, p2.upstream);
+  if (upDiff !== 0) return upDiff < 0;
+  return compareDebianParts(p1.revision, p2.revision) < 0;
 }
 
 export function parseDshVersionFromPackages(packagesContent, compareFn = compareDebianLt) {
