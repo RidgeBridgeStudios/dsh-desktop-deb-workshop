@@ -10,7 +10,9 @@ import {
   isProhibitedPackage,
   executeCommand,
   resolveDaemonBin,
-  stopDshBackend
+  stopDshBackend,
+  resolveTargetUrl,
+  withDaemonStopped
 } from '../usr/share/dsh-desktop/app/main.js'
 import { LIVE_PROFILE } from '../usr/share/dsh-desktop/lib/plugin-manager/paths.mjs'
 import { RECOMMENDED_MARKET_VERSION } from '../usr/share/dsh-desktop/lib/plugin-manager/market-constants.mjs'
@@ -387,4 +389,30 @@ test('preset:get-import-data: only reads supervisor.importPresetPath, enforces .
   // d) reading a path with a non-.dshpreset extension rejects or returns null
   const nonPresetData = await handlers['preset:get-import-data'](trustedEvent, nonPresetPath).catch(() => null)
   assert.equal(nonPresetData, null)
+})
+
+test('resolveTargetUrl: parses space separated --url argument', () => {
+  assert.equal(resolveTargetUrl(['node', '--url', 'http://x']), 'http://x')
+})
+
+test('withDaemonStopped: preserves action error even if restarter throws', async () => {
+  const context = {
+    checkStatus: async () => ({ active: true }),
+    stopBackend: async () => {},
+    restartBackend: async () => {
+      throw new Error('B')
+    }
+  }
+
+  await assert.rejects(
+    async () => {
+      await withDaemonStopped(async () => {
+        throw new Error('A')
+      }, context)
+    },
+    (err) => {
+      assert.equal(err.message, 'A')
+      return true
+    }
+  )
 })

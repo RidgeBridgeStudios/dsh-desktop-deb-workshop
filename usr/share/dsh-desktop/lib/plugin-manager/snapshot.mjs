@@ -160,7 +160,8 @@ export async function createSnapshot(options = {}) {
   const filterFlag = useZstd ? '--zstd' : '--gzip';
 
   const ts = options.timestamp || new Date(clock()).toISOString().replace(/[:.]/g, '-');
-  const archiveName = `${ts}-${reason}${ext}`;
+  const safeReason = String(reason).replace(/\.\./g, '_').replace(/[^a-z0-9._-]/gi, '_').slice(0, 64);
+  const archiveName = `${ts}-${safeReason}${ext}`;
   const archivePath = path.join(backupsDir, archiveName);
   const shaPath = `${archivePath}.sha256`;
 

@@ -166,3 +166,22 @@ test('createSnapshot: falls back to gzip when useZstd is false', async () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('createSnapshot: sanitizes reason in archive basename', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-snapshot-test-'));
+  try {
+    createFixtureTree(tmp);
+    const res = await createSnapshot({
+      dshHome: tmp,
+      reason: '../../etc/passwd',
+      clock: () => 1700000000000
+    });
+
+    const base = path.basename(res.archivePath);
+    assert.equal(base.includes('..'), false, 'basename must not contain ..');
+    assert.equal(base.includes('/'), false, 'basename must not contain /');
+    assert.equal(res.reason, '../../etc/passwd', 'original reason is preserved');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

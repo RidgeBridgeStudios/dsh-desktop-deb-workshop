@@ -178,12 +178,19 @@ export function resolveImportPresetPath(argv = process.argv) {
 }
 
 export function resolveTargetUrl(argv = process.argv) {
-  for (const arg of argv.slice(1)) {
-    if (arg.startsWith('--url=')) {
-      return arg.slice(6);
+  if (!Array.isArray(argv)) return process.env.DSH_URL || 'http://127.0.0.1:3080';
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--url' && argv[i + 1]) {
+      return argv[i + 1];
     }
-    if (arg.startsWith('http://') || arg.startsWith('https://')) {
-      return arg;
+    if (typeof arg === 'string') {
+      if (arg.startsWith('--url=')) {
+        return arg.slice(6);
+      }
+      if (arg.startsWith('http://') || arg.startsWith('https://')) {
+        return arg;
+      }
     }
   }
   return process.env.DSH_URL || 'http://127.0.0.1:3080';
@@ -482,13 +489,25 @@ export function checkRecentLogFailures() {
   const logDir = path.join(process.env.HOME || '/tmp', '.local/share/dsh-desktop');
   const logFile = path.join(logDir, 'dsh.log');
   if (!fs.existsSync(logFile)) return null;
+  let fd = null;
   try {
-    const content = fs.readFileSync(logFile, 'utf8');
+    const stat = fs.statSync(logFile);
+    const maxBytes = 64 * 1024;
+    const length = Math.min(stat.size, maxBytes);
+    const position = Math.max(0, stat.size - maxBytes);
+    const buffer = Buffer.alloc(length);
+    fd = fs.openSync(logFile, 'r');
+    fs.readSync(fd, buffer, 0, length, position);
+    const content = buffer.toString('utf8');
     const lines = content.trim().split('\n');
     const recent = lines.slice(-50).join('\n');
     return handleStartupFailureText(recent, { logTail: lines.slice(-50) });
   } catch {
     return null;
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
+    }
   }
 }
 
@@ -703,11 +722,22 @@ export async function withDaemonStopped(action, context = {}) {
   if (wasRunning) {
     await stopper();
   }
+  let actionError = null;
   try {
     return await action();
+  } catch (err) {
+    actionError = err;
+    throw err;
   } finally {
     if (wasRunning) {
-      await restarter();
+      try {
+        await restarter();
+      } catch (restartErr) {
+        process.stderr.write(`Failed to restart DSH backend: ${restartErr?.message || restartErr}\n`);
+        if (!actionError) {
+          throw restartErr;
+        }
+      }
     }
   }
 }
