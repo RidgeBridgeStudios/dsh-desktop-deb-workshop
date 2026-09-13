@@ -223,3 +223,43 @@ test('generationBuildApprovals keeps only explicit safe allowBuild keys', () => 
   assert.deepEqual(generationBuildApprovals(yaml).sort(), ['esbuild', 'sharp'])
   assert.deepEqual(generationBuildApprovals(''), [])
 })
+
+test('installGeneration with sourceDirectory containing a symlink returns ok false and rejects with symlink error', async (t) => {
+  const home = await scratch(t)
+  const sourceDir = await mkdtemp(join(tmpdir(), 'dsh-source-'))
+  t.after(() => rm(sourceDir, { recursive: true, force: true }))
+
+  await writeFile(join(sourceDir, 'package.json'), JSON.stringify({ name: 'example-plugin', version: '1.2.3' }))
+  await symlink('/etc/passwd', join(sourceDir, 'passwd-link'))
+
+  const result = await install(home, {
+    sourceDirectory: sourceDir
+  })
+
+  assert.equal(result.ok, false)
+  assert.match(result.detail, /symlink/)
+  assert.deepEqual(await listGenerations(home), [])
+})
+
+test('installGeneration with clean sourceDirectory succeeds and does not contain symlinked files', async (t) => {
+  const home = await scratch(t)
+  const sourceDir = await mkdtemp(join(tmpdir(), 'dsh-source-'))
+  t.after(() => rm(sourceDir, { recursive: true, force: true }))
+
+  await writeFile(join(sourceDir, 'package.json'), JSON.stringify({ name: 'example-plugin', version: '1.2.3' }))
+  await writeFile(join(sourceDir, 'index.js'), 'export default 42')
+
+  const result = await install(home, {
+    sourceDirectory: sourceDir,
+    runInstall: async (staging) => {
+      await writePackage(staging, 'example-plugin', '1.2.3')
+      await writeFile(join(staging, 'pnpm-lock.yaml'), 'lock-source')
+      return { code: 0, output: '' }
+    }
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(existsSync(join(result.generation.directory, 'node_modules', 'example-plugin')), true)
+  assert.equal(existsSync(join(result.generation.directory, 'passwd-link')), false)
+})
+

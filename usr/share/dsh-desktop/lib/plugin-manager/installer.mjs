@@ -301,9 +301,25 @@ export async function installGeneration(options) {
     }
     let installSpec = pluginSpec
     if (options.sourceDirectory !== undefined) {
+      async function assertNoSymlinks(dir, base = dir) {
+        const entries = await readdir(dir, { withFileTypes: true })
+        for (const entry of entries) {
+          const fullPath = join(dir, entry.name)
+          const relPath = relative(base, fullPath)
+          const stat = await lstat(fullPath)
+          if (stat.isSymbolicLink()) {
+            throw new Error(`source directory contains a symlink: ${relPath}`)
+          }
+          if (stat.isDirectory()) {
+            await assertNoSymlinks(fullPath, base)
+          }
+        }
+      }
+      await assertNoSymlinks(options.sourceDirectory)
+
       const sourceCopy = join(stagingDir, 'source', pluginName.replace(/^@/u, '').replace(/[/\\]/gu, '+'))
       await mkdir(join(stagingDir, 'source'), { recursive: true })
-      await cp(options.sourceDirectory, sourceCopy, { recursive: true, dereference: true })
+      await cp(options.sourceDirectory, sourceCopy, { recursive: true, dereference: false })
       installSpec = `file:${sourceCopy}`
     }
     trace(`installing ${options.sourceSpec ?? pluginSpec} into staging`)
