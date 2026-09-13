@@ -186,7 +186,10 @@
         model.plugins.forEach(p => {
           const li = document.createElement('li');
           li.className = 'plugin-item';
-          li.innerHTML = `<span class="plugin-name">${typeof p === 'string' ? p : p.name}</span>`;
+          const span = document.createElement('span');
+          span.className = 'plugin-name';
+          span.textContent = typeof p === 'string' ? p : String(p?.name ?? '');
+          li.appendChild(span);
           list.appendChild(li);
         });
       } else {

@@ -80,3 +80,13 @@ test('recovery view dispatches appropriate recovery action payload', () => {
   dispatchAction('retry', model)
   assert.equal(actionsDispatched[actionsDispatched.length - 1], 'retry')
 })
+
+test('recovery.html constructs plugin list using textContent and avoids innerHTML interpolation', () => {
+  const html = readFileSync(recoveryHtmlPath, 'utf8')
+  const renderRecoveryStart = html.indexOf('function renderRecovery(')
+  assert.ok(renderRecoveryStart !== -1, 'renderRecovery function found')
+  const renderRecoveryBlock = html.slice(renderRecoveryStart, html.indexOf('function dispatchAction('))
+  assert.equal(renderRecoveryBlock.includes('innerHTML = `'), false)
+  assert.ok(renderRecoveryBlock.includes('span.textContent'))
+})
+

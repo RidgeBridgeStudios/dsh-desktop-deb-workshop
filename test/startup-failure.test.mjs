@@ -59,3 +59,30 @@ test('reporting writes exactly one prefixed line', () => {
   assert.equal(written[0].endsWith('\n'), true)
   assert.equal(isPluginFailureLine(written[0].trimEnd()), true)
 })
+
+test('formatPluginStartupFailure with packageName containing HTML tags throws', () => {
+  assert.throws(
+    () => formatPluginStartupFailure({ stage: 'import', packageName: '<img src=x>', message: 'err' }),
+    /Plugin startup failure is not well formed\./
+  )
+})
+
+test('parsePluginStartupFailures on a line whose failures[0].packageName is malicious returns undefined', () => {
+  const line = `${PLUGIN_FAILURE_PREFIX}${JSON.stringify({
+    v: 1,
+    failures: [{ stage: 'import', packageName: '<script>', message: 'err' }]
+  })}`
+  assert.equal(parsePluginStartupFailures(line), undefined)
+})
+
+test('formatPluginStartupFailure with a legitimate scoped name round-trips unchanged', () => {
+  const line = formatPluginStartupFailure({
+    stage: 'activate',
+    packageName: '@scope/plugin',
+    message: 'all good'
+  })
+  const parsed = parsePluginStartupFailures(line)
+  assert.ok(parsed)
+  assert.equal(parsed[0].packageName, '@scope/plugin')
+})
+

@@ -1,12 +1,15 @@
 export const PLUGIN_FAILURE_PREFIX = '[harness-node] plugin failures: '
 export const PLUGIN_FAILURE_VERSION = 1
 
+const SAFE_PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/iu
+
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function normalizeOwner(owner) {
   if (!isRecord(owner) || typeof owner.packageName !== 'string') return undefined
+  if (!SAFE_PACKAGE_NAME_PATTERN.test(owner.packageName)) return undefined
   return {
     packageName: owner.packageName,
     ...(typeof owner.version === 'string' ? { version: owner.version } : {}),
@@ -17,7 +20,7 @@ function normalizeOwner(owner) {
 function normalizeChain(chain) {
   if (!Array.isArray(chain)) return []
   return chain
-    .filter((entry) => isRecord(entry) && typeof entry.packageName === 'string')
+    .filter((entry) => isRecord(entry) && typeof entry.packageName === 'string' && SAFE_PACKAGE_NAME_PATTERN.test(entry.packageName))
     .map((entry) => ({
       packageName: entry.packageName,
       ...(typeof entry.entryId === 'string' ? { entryId: entry.entryId } : {}),
@@ -36,6 +39,7 @@ function normalizeFailure(failure) {
   ) {
     return undefined
   }
+  if (!SAFE_PACKAGE_NAME_PATTERN.test(failure.packageName)) return undefined
   const owner = normalizeOwner(failure.owner)
   return {
     stage: failure.stage,
