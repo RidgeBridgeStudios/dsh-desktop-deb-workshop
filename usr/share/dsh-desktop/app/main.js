@@ -267,17 +267,8 @@ export function checkServerReady(urlStr, callback) {
 }
 
 export function executeCommand(file, args = []) {
-  let bin = file;
-  let binArgs = args;
-  if (!Array.isArray(args) || args.length === 0) {
-    if (typeof file === 'string' && file.includes(' ')) {
-      const parts = file.trim().split(/\s+/);
-      bin = parts[0];
-      binArgs = parts.slice(1);
-    } else {
-      binArgs = [];
-    }
-  }
+  const bin = file;
+  const binArgs = Array.isArray(args) ? args : [];
   return new Promise((resolve) => {
     execFile(bin, binArgs, (error, stdout, stderr) => {
       resolve({
@@ -471,12 +462,15 @@ export function handleStartupFailureText(text, options = {}) {
     checks: options.checks || []
   });
 
+  const relevant = new Set(recoveryPlan.plugins);
+  const filteredChecks = (options.checks || []).filter((c) => relevant.has(c.packageName));
+
   const viewModel = buildRecoveryViewModel({
     locale: options.locale || detectLocale(),
     plugins: recoveryPlan.plugins.length > 0 ? recoveryPlan.plugins : pluginNames,
     structured: recoveryPlan.source === 'structured',
     rawError: failures.map((f) => `${f.packageName}: ${f.message}`).join('\n'),
-    checks: options.checks || []
+    checks: filteredChecks
   });
 
   const planRemovals = recoveryPlan.plan?.removals?.length > 0
@@ -494,13 +488,21 @@ export function handleStartupFailureText(text, options = {}) {
   return viewModel;
 }
 
+let logTailCache = { mtimeMs: 0, size: 0, model: null };
+
 export function checkRecentLogFailures() {
   const logDir = path.join(process.env.HOME || '/tmp', '.local/share/dsh-desktop');
   const logFile = path.join(logDir, 'dsh.log');
-  if (!fs.existsSync(logFile)) return null;
+  if (!fs.existsSync(logFile)) {
+    logTailCache = { mtimeMs: 0, size: 0, model: null };
+    return null;
+  }
   let fd = null;
   try {
     const stat = fs.statSync(logFile);
+    if (stat.mtimeMs === logTailCache.mtimeMs && stat.size === logTailCache.size) {
+      return logTailCache.model;
+    }
     const maxBytes = 64 * 1024;
     const length = Math.min(stat.size, maxBytes);
     const position = Math.max(0, stat.size - maxBytes);
@@ -510,7 +512,9 @@ export function checkRecentLogFailures() {
     const content = buffer.toString('utf8');
     const lines = content.trim().split('\n');
     const recent = lines.slice(-50).join('\n');
-    return handleStartupFailureText(recent, { logTail: lines.slice(-50) });
+    const model = handleStartupFailureText(recent, { logTail: lines.slice(-50) });
+    logTailCache = { mtimeMs: stat.mtimeMs, size: stat.size, model };
+    return model;
   } catch {
     return null;
   } finally {
@@ -924,16 +928,11 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
     if (typeof requestedPath !== 'string' || !path.isAbsolute(requestedPath) || !requestedPath.endsWith('.dshpreset')) {
       return null;
     }
-    const targetPath = supervisor.importPresetPath;
     try {
-      const [targetReal, presetReal] = await Promise.all([
-        fs.promises.realpath(targetPath),
-        fs.promises.realpath(supervisor.importPresetPath)
-      ]);
-      if (targetReal !== presetReal) return null;
+      const presetReal = await fs.promises.realpath(supervisor.importPresetPath);
       const requestedReal = await fs.promises.realpath(requestedPath);
       if (requestedReal !== presetReal) return null;
-      return await fs.promises.readFile(targetReal);
+      return await fs.promises.readFile(presetReal);
     } catch {
       return null;
     }
@@ -976,7 +975,11 @@ export function showImportPresetMessage(message, win = mainWindow) {
         const banner = document.createElement('div');
         banner.id = bannerId;
         banner.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1e293b;color:#f8fafc;padding:14px 20px;border-radius:8px;border:1px solid #38bdf8;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:999999;font-family:sans-serif;max-width:360px;font-size:14px;';
-        banner.innerHTML = '<div style="font-weight:600;margin-bottom:4px;color:#38bdf8;">Agent Preset</div><div>' + ${JSON.stringify(message)}.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+        const safeText = ${JSON.stringify(String(message))};
+        banner.innerHTML = '<div style="font-weight:600;margin-bottom:4px;color:#38bdf8;">Agent Preset</div>';
+        const body = document.createElement('div');
+        body.textContent = safeText;
+        banner.appendChild(body);
         document.body.appendChild(banner);
         setTimeout(() => banner.remove(), 7000);
       })();
@@ -1346,7 +1349,7 @@ export function buildAppMenuTemplate(options = {}) {
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
-        { role: 'toggleDevTools' }
+        ...(process.env.DSH_DESKTOP_DEV === '1' ? [{ role: 'toggleDevTools' }] : [])
       ]
     },
     {

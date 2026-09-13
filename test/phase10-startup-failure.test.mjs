@@ -76,3 +76,23 @@ test('tray menu and app menu templates show Chinese labels on zh locale', () => 
   assert.equal(appMenu[0].submenu[1].label, '强制重新加载')
   assert.equal(appMenu[3].label, '帮助')
 })
+
+test('handleStartupFailureText: filtered checks only include plugins named in recovery plan', () => {
+  const line = formatPluginStartupFailure({
+    stage: 'import',
+    packageName: 'plugin-a',
+    message: 'Crash'
+  })
+  const checks = [
+    { packageName: 'plugin-a', removable: true, removalRecommended: true, upgradeAvailable: false },
+    { packageName: 'plugin-b', removable: true, removalRecommended: true, upgradeAvailable: true }
+  ]
+  const viewModel = handleStartupFailureText(line, {
+    checks,
+    candidates: [{ name: 'plugin-a', directory: '/dir/a', dependencies: {}, optionalDependencies: {}, bundlePatch: '', sources: {} }]
+  })
+  assert.ok(viewModel)
+  assert.deepEqual(viewModel.plan.removals, ['plugin-a'])
+  assert.deepEqual(viewModel.plan.upgrades, [])
+})
+

@@ -305,11 +305,16 @@ test('executeCommand: executes with execFile without shell interpolation', async
   assert.equal(res.stdout, 'hello $HOME ; whoami', 'Metacharacters must not be expanded by shell')
   assert.equal(res.stderr, '')
 
+  // Non-array args are not tokenized into multiple args
+  const singleArgRes = await executeCommand('echo', 'hello world')
+  assert.equal(singleArgRes.stdout, '')
+
   // Missing binary reports error
   const errRes = await executeCommand('non_existent_binary_for_testing_12345')
   assert.ok(errRes.error)
   assert.equal(errRes.error.code, 'ENOENT')
 })
+
 
 test('stopDshBackend: prefers systemctl and only pkills exact daemon path if systemd unavailable', async () => {
   const daemonBin = resolveDaemonBin()

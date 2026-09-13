@@ -318,3 +318,26 @@ test('preload IPC update:available handler returns update status', async () => {
   assert.equal(res.available, true);
   assert.equal(res.version, '1.3.0');
 });
+
+test('buildAppMenuTemplate: gates toggleDevTools on DSH_DESKTOP_DEV=1', async () => {
+  const { buildAppMenuTemplate } = await import('../usr/share/dsh-desktop/app/main.js');
+  const origEnv = process.env.DSH_DESKTOP_DEV;
+  try {
+    delete process.env.DSH_DESKTOP_DEV;
+    const templateNoDev = buildAppMenuTemplate();
+    const viewSubmenuNoDev = templateNoDev.find((item) => item.label === 'View' || item.label === '视图')?.submenu || [];
+    assert.ok(!viewSubmenuNoDev.some((item) => item.role === 'toggleDevTools'), 'toggleDevTools must not be present when DSH_DESKTOP_DEV unset');
+
+    process.env.DSH_DESKTOP_DEV = '1';
+    const templateWithDev = buildAppMenuTemplate();
+    const viewSubmenuWithDev = templateWithDev.find((item) => item.label === 'View' || item.label === '视图')?.submenu || [];
+    assert.ok(viewSubmenuWithDev.some((item) => item.role === 'toggleDevTools'), 'toggleDevTools must be present when DSH_DESKTOP_DEV=1');
+  } finally {
+    if (origEnv === undefined) {
+      delete process.env.DSH_DESKTOP_DEV;
+    } else {
+      process.env.DSH_DESKTOP_DEV = origEnv;
+    }
+  }
+});
+
