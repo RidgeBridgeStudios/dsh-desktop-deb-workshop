@@ -86,7 +86,7 @@ test('installs into a new immutable generation and promotes it', async (t) => {
   assert.equal(existsSync(result.generation.directory), true)
   const meta = JSON.parse(await readFile(join(result.generation.directory, 'generation.json'), 'utf8'))
   assert.deepEqual(meta, { pluginName: 'example-plugin', version: '1.2.3' })
-  const staging = await import('node:fs/promises').then((fs) => fs.readdir(registryLayout(home).staging))
+  const staging = await import('node:fs/promises').then((fs) => fs.readdir(registryLayout(home, 'default').staging))
   assert.deepEqual(staging, [])
 })
 

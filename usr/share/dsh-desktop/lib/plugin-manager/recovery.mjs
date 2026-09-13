@@ -15,7 +15,8 @@ export function buildRecoveryPlan(options = {}) {
     slotConflictName,
     slotProviders = [],
     checks = [],
-    excludedPlugins = []
+    excludedPlugins = [],
+    profile
   } = options
 
   const detection = detectPluginRecovery({ candidates, startupFailures, logs, excludedPlugins })

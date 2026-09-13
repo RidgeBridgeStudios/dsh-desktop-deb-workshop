@@ -320,6 +320,7 @@ test('installCommunityPluginAsGeneration rejects before calling installGeneratio
   await assert.rejects(
     () => installCommunityPluginAsGeneration('community-pkg@1.0.0', {
       dshHome: '/tmp/ignored',
+      profile: 'default',
       dshVersion: '0.2.0',
       installGeneration: mockInstallGeneration
     }),

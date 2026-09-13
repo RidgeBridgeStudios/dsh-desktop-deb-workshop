@@ -33,8 +33,25 @@ import {
 import {
   dshHome as defaultDshHome,
   LIVE_PROFILE,
-  profileDirectory
+  profileDirectory,
+  activeProfile,
+  resolveProfileName,
+  PROFILE_NAME_PATTERN
 } from '../lib/plugin-manager/paths.mjs';
+import {
+  listProfiles,
+  createProfile,
+  renameProfile,
+  deleteProfile,
+  setActiveProfile,
+  ensureActiveProfileDirectory,
+  migrateLegacyLayout
+} from '../lib/plugin-manager/profiles.mjs';
+import {
+  createSnapshot,
+  restoreSnapshot,
+  listSnapshots
+} from '../lib/plugin-manager/snapshot.mjs';
 import {
   uninstallPlugin,
   upgradePlugin
@@ -236,14 +253,60 @@ export function resolvePatchPath() {
   return candidates.find((c) => fs.existsSync(c));
 }
 
+let cachedActiveProfile = LIVE_PROFILE;
+
+export function getCachedActiveProfile() {
+  return cachedActiveProfile;
+}
+
+export function setCachedActiveProfile(name) {
+  cachedActiveProfile = name;
+}
+
+let mutationChain = Promise.resolve();
+
+export function withMutationLock(fn) {
+  const next = mutationChain.then(() => fn(), () => fn());
+  mutationChain = next.catch(() => {});
+  return next;
+}
+
+export function resolveProfileFromArgv(argv = process.argv) {
+  if (!Array.isArray(argv)) return null;
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (typeof arg === 'string') {
+      if (arg.startsWith('--profile=')) {
+        return arg.slice('--profile='.length);
+      }
+      if (arg === '--profile' && i + 1 < argv.length) {
+        return argv[i + 1];
+      }
+    }
+  }
+  return null;
+}
+
+export function resolveLogFilePath(profile = LIVE_PROFILE) {
+  const logDir = path.join(process.env.HOME || '/tmp', '.local/share/dsh-desktop');
+  const safeProfile = (typeof profile === 'string' && profile.trim()) ? profile.trim() : LIVE_PROFILE;
+  return path.join(logDir, `dsh-${safeProfile}.log`);
+}
+
 export function buildDaemonArgs(options = {}) {
   const isSafeMode = options.safeMode ?? shouldStartInSafeMode(process.argv);
   const patchPath = options.patchPath ?? resolvePatchPath();
+  const profile = options.profile;
   const args = [];
   if (isSafeMode) {
     args.push('--profile', SAFE_MODE_PROFILE);
-  } else if (patchPath && fs.existsSync(patchPath)) {
-    args.push('--patch', patchPath);
+  } else {
+    if (profile && profile !== LIVE_PROFILE) {
+      args.push('--profile', profile);
+    }
+    if (patchPath && fs.existsSync(patchPath)) {
+      args.push('--patch', patchPath);
+    }
   }
   return args;
 }
@@ -344,12 +407,13 @@ export async function restartDshBackend(options = {}) {
       const ensureSafeModeProfileFn = options.ensureSafeModeProfile || ensureSafeModeProfile;
       await ensureSafeModeProfileFn(options.dshHome || defaultDshHome());
     }
-    const daemonArgs = buildDaemonArgs(options);
+    const profile = options.profile || cachedActiveProfile || LIVE_PROFILE;
+    const daemonArgs = buildDaemonArgs({ ...options, profile });
     const logDir = path.join(process.env.HOME || '/tmp', '.local/share/dsh-desktop');
     try {
       fs.mkdirSync(logDir, { recursive: true });
     } catch {}
-    const logFile = path.join(logDir, 'dsh.log');
+    const logFile = resolveLogFilePath(profile);
     let outFd;
     try {
       outFd = fs.openSync(logFile, 'a');
@@ -488,20 +552,30 @@ export function handleStartupFailureText(text, options = {}) {
   return viewModel;
 }
 
-let logTailCache = { mtimeMs: 0, size: 0, model: null };
+let logTailCache = new Map();
 
-export function checkRecentLogFailures() {
+export function checkRecentLogFailures(options = {}) {
+  const profile = typeof options === 'string'
+    ? options
+    : (options.profile || cachedActiveProfile || LIVE_PROFILE);
   const logDir = path.join(process.env.HOME || '/tmp', '.local/share/dsh-desktop');
-  const logFile = path.join(logDir, 'dsh.log');
+  let logFile = path.join(logDir, `dsh-${profile}.log`);
+  if (!fs.existsSync(logFile) && (profile === LIVE_PROFILE || profile === 'default')) {
+    const fallback = path.join(logDir, 'dsh.log');
+    if (fs.existsSync(fallback)) {
+      logFile = fallback;
+    }
+  }
   if (!fs.existsSync(logFile)) {
-    logTailCache = { mtimeMs: 0, size: 0, model: null };
+    logTailCache.delete(profile);
     return null;
   }
   let fd = null;
   try {
     const stat = fs.statSync(logFile);
-    if (stat.mtimeMs === logTailCache.mtimeMs && stat.size === logTailCache.size) {
-      return logTailCache.model;
+    const cached = logTailCache.get(profile) || { mtimeMs: 0, size: 0, model: null };
+    if (stat.mtimeMs === cached.mtimeMs && stat.size === cached.size) {
+      return cached.model;
     }
     const maxBytes = 64 * 1024;
     const length = Math.min(stat.size, maxBytes);
@@ -512,8 +586,8 @@ export function checkRecentLogFailures() {
     const content = buffer.toString('utf8');
     const lines = content.trim().split('\n');
     const recent = lines.slice(-50).join('\n');
-    const model = handleStartupFailureText(recent, { logTail: lines.slice(-50) });
-    logTailCache = { mtimeMs: stat.mtimeMs, size: stat.size, model };
+    const model = handleStartupFailureText(recent, { logTail: lines.slice(-50), profile });
+    logTailCache.set(profile, { mtimeMs: stat.mtimeMs, size: stat.size, model });
     return model;
   } catch {
     return null;
@@ -721,6 +795,66 @@ export function exitSafeMode() {
   app.exit(0);
 }
 
+let pickerWindow = null;
+let pickerResolveCallback = null;
+
+export function showProfilePicker(options = {}) {
+  return new Promise((resolve) => {
+    if (!BrowserWindow) {
+      resolve(cachedActiveProfile);
+      return;
+    }
+    if (pickerWindow && !pickerWindow.isDestroyed()) {
+      pickerWindow.focus();
+      return;
+    }
+    pickerResolveCallback = resolve;
+    pickerWindow = new BrowserWindow({
+      width: 720,
+      height: 560,
+      resizable: false,
+      center: true,
+      title: 'Select DSH Profile',
+      backgroundColor: '#0f172a',
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        preload: path.join(__dirname, 'preload.cjs')
+      }
+    });
+
+    pickerWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+    pickerWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    pickerWindow.loadFile(path.join(__dirname, 'profile-picker.html'));
+
+    pickerWindow.on('closed', () => {
+      pickerWindow = null;
+      if (pickerResolveCallback) {
+        const cb = pickerResolveCallback;
+        pickerResolveCallback = null;
+        cb(cachedActiveProfile);
+      }
+    });
+  });
+}
+
+export async function switchProfile(profile, supervisor = {}) {
+  const home = supervisor.dshHome || defaultDshHome();
+  const withStoppedFn = supervisor.withDaemonStopped || withDaemonStopped;
+  const setActiveProfileFn = supervisor.setActiveProfile || setActiveProfile;
+  const restartDshFn = supervisor.restartDsh || restartDsh;
+
+  await withStoppedFn(async () => {
+    await setActiveProfileFn(home, profile);
+    cachedActiveProfile = profile;
+  }, supervisor);
+
+  await restartDshFn();
+  setupMenu();
+  updateTrayMenu();
+}
+
 /**
  * Invariant 9 Runtime Stop Wrapper:
  * Guarantees that all package mutations execute strictly while the runtime daemon is stopped.
@@ -789,6 +923,14 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
   const home = supervisor.dshHome || defaultDshHome();
   const resetCircuitFn = supervisor.resetCircuitState || resetCircuitState;
 
+  const listProfilesFn = supervisor.listProfiles || listProfiles;
+  const createProfileFn = supervisor.createProfile || createProfile;
+  const renameProfileFn = supervisor.renameProfile || renameProfile;
+  const deleteProfileFn = supervisor.deleteProfile || deleteProfile;
+  const setActiveProfileFn = supervisor.setActiveProfile || setActiveProfile;
+  const listSnapshotsFn = supervisor.listSnapshots || listSnapshots;
+  const restoreSnapshotFn = supervisor.restoreSnapshot || restoreSnapshot;
+
   ipc.handle('harness:restart', async (event) => {
     assertTrustedSender(event);
     return restartDshFn();
@@ -796,35 +938,170 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
 
   ipc.handle('market:install', async (event) => {
     assertTrustedSender(event);
-    return withStoppedFn(async () => {
+    return withMutationLock(() => withStoppedFn(async () => {
       let dshEntryPath;
       try {
         dshEntryPath = resolveDshEntryFn();
       } catch {}
       return installMarketFn({
         dshHome: home,
-        profile: LIVE_PROFILE,
+        profile: cachedActiveProfile || LIVE_PROFILE,
         recommendedVersion,
         dshEntryPath,
         nodeExecutablePath
       });
-    }, supervisor);
+    }, supervisor));
   });
 
   ipc.handle('market:uninstall', async (event) => {
     assertTrustedSender(event);
-    return withStoppedFn(async () => {
+    return withMutationLock(() => withStoppedFn(async () => {
       let dshEntryPath;
       try {
         dshEntryPath = resolveDshEntryFn();
       } catch {}
       return uninstallMarketFn({
         dshHome: home,
-        profile: LIVE_PROFILE,
+        profile: cachedActiveProfile || LIVE_PROFILE,
         dshEntryPath,
         nodeExecutablePath
       });
-    }, supervisor);
+    }, supervisor));
+  });
+
+  ipc.handle('profile:list', async (event) => {
+    assertTrustedSender(event);
+    return listProfilesFn(home);
+  });
+
+  ipc.handle('profile:create', async (event, payload) => {
+    assertTrustedSender(event);
+    const { name } = payload || {};
+    if (typeof name !== 'string' || !PROFILE_NAME_PATTERN.test(name)) {
+      throw new Error(`Invalid profile name: ${name}`);
+    }
+    return withMutationLock(() => createProfileFn(home, payload));
+  });
+
+  ipc.handle('profile:rename', async (event, payload) => {
+    assertTrustedSender(event);
+    const { name } = payload || {};
+    if (typeof name !== 'string' || !PROFILE_NAME_PATTERN.test(name)) {
+      throw new Error(`Invalid profile name: ${name}`);
+    }
+    return withMutationLock(() => renameProfileFn(home, payload));
+  });
+
+  ipc.handle('profile:delete', async (event, payload) => {
+    assertTrustedSender(event);
+    let name = payload;
+    if (typeof payload === 'object' && payload !== null) {
+      name = payload.name;
+      if (payload.confirm !== name) {
+        throw new Error('confirm must equal name');
+      }
+    }
+    if (typeof name !== 'string' || !PROFILE_NAME_PATTERN.test(name)) {
+      throw new Error(`Invalid profile name: ${name}`);
+    }
+    return withMutationLock(() => deleteProfileFn(home, name));
+  });
+
+  ipc.handle('profile:set-active', async (event, name) => {
+    assertTrustedSender(event);
+    if (typeof name !== 'string' || !PROFILE_NAME_PATTERN.test(name)) {
+      throw new Error(`Invalid profile name: ${name}`);
+    }
+    return withMutationLock(async () => {
+      const res = await setActiveProfileFn(home, name);
+      cachedActiveProfile = name;
+      setupMenu();
+      updateTrayMenu();
+      return res;
+    });
+  });
+
+  ipc.handle('profile:snapshots', async (event, profile) => {
+    assertTrustedSender(event);
+    return listSnapshotsFn(home, { profile: profile || cachedActiveProfile });
+  });
+
+  ipc.handle('profile:restore', async (event, payload) => {
+    assertTrustedSender(event);
+    const { name, profile, snapshotPath, safetyFirst } = payload || {};
+    const targetProfile = name || profile || cachedActiveProfile;
+    if (typeof targetProfile !== 'string' || !PROFILE_NAME_PATTERN.test(targetProfile)) {
+      throw new Error(`Invalid profile name: ${targetProfile}`);
+    }
+    if (safetyFirst !== true) {
+      throw new Error('safetyFirst must be true to restore snapshot');
+    }
+    if (typeof snapshotPath !== 'string' || !snapshotPath) {
+      throw new Error('snapshotPath is required');
+    }
+    const backupsDir = path.resolve(path.join(home, 'backups'));
+    let realSnapshotPath;
+    try {
+      realSnapshotPath = fs.realpathSync(snapshotPath);
+    } catch (err) {
+      throw new Error(`Snapshot file unreadable: ${snapshotPath}`, { cause: err });
+    }
+    if (!realSnapshotPath.startsWith(backupsDir + path.sep) && realSnapshotPath !== backupsDir) {
+      throw new Error(`Snapshot path is outside backups directory: ${snapshotPath}`);
+    }
+    const base = path.basename(realSnapshotPath);
+    if (!base.endsWith(`-${targetProfile}.tar.zst`) && !base.endsWith(`-${targetProfile}.tar.gz`)) {
+      throw new Error(`Snapshot file does not match profile: ${base}`);
+    }
+    return withMutationLock(() => withStoppedFn(async () => {
+      return restoreSnapshotFn(snapshotPath, home, { profile: targetProfile });
+    }, supervisor));
+  });
+
+  ipc.handle('profile:picker-resolve', async (event, payload) => {
+    assertTrustedSender(event);
+    const action = typeof payload === 'object' && payload !== null ? payload.action : 'use';
+    if (!['use', 'restore', 'cancel'].includes(action)) {
+      throw new Error(`Invalid action: ${action}. Expected 'use', 'restore', or 'cancel'.`);
+    }
+    if (!pickerWindow || pickerWindow.isDestroyed()) {
+      throw new Error('No picker is open');
+    }
+    const profile = typeof payload === 'object' && payload !== null ? payload.profile : payload;
+    return withMutationLock(async () => {
+      if (action === 'cancel') {
+        if (pickerResolveCallback) {
+          const cb = pickerResolveCallback;
+          pickerResolveCallback = null;
+          cb(null);
+        }
+        if (pickerWindow && !pickerWindow.isDestroyed()) {
+          pickerWindow.close();
+        }
+        return { ok: true, action: 'cancel' };
+      }
+      if (typeof profile === 'string' && profile.trim()) {
+        const targetProfile = profile.trim();
+        const prevProfile = cachedActiveProfile;
+        cachedActiveProfile = targetProfile;
+        await setActiveProfileFn(home, targetProfile);
+        setupMenu();
+        updateTrayMenu();
+        if (pickerResolveCallback) {
+          const cb = pickerResolveCallback;
+          pickerResolveCallback = null;
+          cb(targetProfile);
+        }
+        if (pickerWindow && !pickerWindow.isDestroyed()) {
+          pickerWindow.close();
+        }
+        if (mainWindow && !mainWindow.isDestroyed() && prevProfile !== targetProfile) {
+          restartDsh().catch(() => {});
+        }
+        return { ok: true, profile: targetProfile, action };
+      }
+      return { ok: false };
+    });
   });
 
   ipc.handle('recovery:action', async (event, action) => {
@@ -838,52 +1115,47 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
       return restartDshFn();
     }
     if (typeof action === 'string') {
-      if (action.startsWith('uninstall:')) {
-        const pkg = action.slice('uninstall:'.length);
-        if (!SAFE_PACKAGE_NAME_PATTERN.test(pkg) || isProhibitedPackage(pkg)) {
-          throw new Error(`Invalid or prohibited package: ${pkg}`);
-        }
-        return withStoppedFn(async () => {
+      if (action.startsWith('uninstall:') || action.startsWith('upgrade:')) {
+        return withMutationLock(() => withStoppedFn(async () => {
           let dshEntryPath;
           try {
             dshEntryPath = resolveDshEntryFn();
           } catch {}
-          return uninstallPluginFn({
-            dshHome: home,
-            packageName: pkg,
-            profile: LIVE_PROFILE,
-            dshEntryPath,
-            nodeExecutablePath
-          });
-        }, supervisor);
-      }
 
-      if (action.startsWith('upgrade:')) {
-        const spec = action.slice('upgrade:'.length);
-        const atIdx = spec.lastIndexOf('@');
-        const pkg = atIdx > 0 ? spec.slice(0, atIdx) : spec;
-        const targetVersion = atIdx > 0 ? spec.slice(atIdx + 1) : undefined;
-        if (!SAFE_PACKAGE_NAME_PATTERN.test(pkg) || isProhibitedPackage(pkg)) {
-          throw new Error(`Invalid or prohibited package: ${pkg}`);
-        }
-        if (targetVersion !== undefined && !/^[a-z0-9._+-]+$/i.test(targetVersion)) {
-          throw new Error(`Invalid or prohibited target version: ${targetVersion}`);
-        }
-        return withStoppedFn(async () => {
-          let dshEntryPath;
-          try {
-            dshEntryPath = resolveDshEntryFn();
-          } catch {}
+          if (action.startsWith('uninstall:')) {
+            const pkg = action.slice('uninstall:'.length);
+            if (!SAFE_PACKAGE_NAME_PATTERN.test(pkg) || isProhibitedPackage(pkg)) {
+              throw new Error(`Invalid or prohibited package: ${pkg}`);
+            }
+            return uninstallPluginFn({
+              dshHome: home,
+              packageName: pkg,
+              profile: cachedActiveProfile || LIVE_PROFILE,
+              dshEntryPath,
+              nodeExecutablePath
+            });
+          }
+
+          const spec = action.slice('upgrade:'.length);
+          const atIdx = spec.lastIndexOf('@');
+          const pkg = atIdx > 0 ? spec.slice(0, atIdx) : spec;
+          const targetVersion = atIdx > 0 ? spec.slice(atIdx + 1) : undefined;
+          if (!SAFE_PACKAGE_NAME_PATTERN.test(pkg) || isProhibitedPackage(pkg)) {
+            throw new Error(`Invalid or prohibited package: ${pkg}`);
+          }
+          if (targetVersion !== undefined && !/^[a-z0-9._+-]+$/i.test(targetVersion)) {
+            throw new Error(`Invalid or prohibited target version: ${targetVersion}`);
+          }
           return upgradePluginFn({
             dshHome: home,
             pluginName: pkg,
             targetVersion,
-            profile: LIVE_PROFILE,
+            profile: cachedActiveProfile || LIVE_PROFILE,
             dshEntryPath,
             nodeExecutablePath,
             restartDaemon: restartDshFn
           });
-        }, supervisor);
+        }, supervisor));
       }
     }
 
@@ -1164,6 +1436,8 @@ export function buildTrayMenuTemplate(options = {}) {
   const updateVersion = availableUpdate?.version || (availableUpdate?.tag ? String(availableUpdate.tag).replace(/^v/, '') : '');
   const updateLabel = formatUpdateLabel(updateVersion);
 
+  const currentProfile = options.profile;
+
   return [
     {
       label: t('trayDesktop'),
@@ -1173,6 +1447,12 @@ export function buildTrayMenuTemplate(options = {}) {
       label: statusText,
       enabled: false
     },
+    ...(currentProfile ? [
+      {
+        label: formatMessage(locale, 'trayProfileLabel', { name: currentProfile }),
+        enabled: false
+      }
+    ] : []),
     ...(hasUpdate ? [
       { type: 'separator' },
       {
@@ -1218,7 +1498,7 @@ export function updateTrayMenu() {
   const locale = detectLocale();
   const t = (key) => translate(locale, key);
 
-  const contextMenu = Menu.buildFromTemplate(buildTrayMenuTemplate({ locale }));
+  const contextMenu = Menu.buildFromTemplate(buildTrayMenuTemplate({ locale, profile: cachedActiveProfile }));
 
   tray.setContextMenu(contextMenu);
   const statusLabel = dshStatus.active ? t('trayRunning') : t('trayOffline');
@@ -1314,6 +1594,17 @@ export function buildAppMenuTemplate(options = {}) {
         },
         { type: 'separator' },
         {
+          label: t('menuSwitchProfile'),
+          click: () => {
+            showProfilePicker().then((prof) => {
+              if (prof && prof !== cachedActiveProfile) {
+                switchProfile(prof);
+              }
+            });
+          }
+        },
+        { type: 'separator' },
+        {
           label: t('trayHide'),
           accelerator: 'CmdOrCtrl+W',
           click: () => mainWindow && mainWindow.hide()
@@ -1367,6 +1658,33 @@ export function setupMenu() {
 
 if (app) {
   app.whenReady().then(async () => {
+    try {
+      await migrateLegacyLayout(defaultDshHome());
+    } catch {}
+
+    const cliProfile = resolveProfileFromArgv(process.argv);
+    const showPicker = process.argv.includes('--show-profile-picker');
+    let existingProfiles = [];
+    try {
+      existingProfiles = await listProfiles(defaultDshHome());
+    } catch {}
+
+    if (cliProfile) {
+      cachedActiveProfile = resolveProfileName({ profile: cliProfile });
+      try {
+        await setActiveProfile(defaultDshHome(), cachedActiveProfile);
+      } catch {}
+    } else if (showPicker || existingProfiles.length > 1) {
+      cachedActiveProfile = await showProfilePicker();
+    } else {
+      try {
+        cachedActiveProfile = await activeProfile(defaultDshHome());
+      } catch {}
+    }
+    try {
+      await ensureActiveProfileDirectory(defaultDshHome());
+    } catch {}
+
     if (shouldStartInSafeMode(process.argv)) {
       await ensureSafeModeProfile(defaultDshHome());
     }

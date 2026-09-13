@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { LIVE_PROFILE, profileDirectory } from './paths.mjs'
+import { profileDirectory } from './paths.mjs'
 
 export const CORE_BUNDLES = new Set(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dshmarket'])
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/iu
@@ -161,7 +161,8 @@ async function readText(path) {
   }
 }
 
-export async function loadRecoveryCandidates(dshHome, profile = LIVE_PROFILE) {
+export async function loadRecoveryCandidates(dshHome, profile) {
+  if (!profile) throw new Error('profile is required')
   const dir = profileDirectory(dshHome, profile)
   const manifest = (await readJson(join(dir, 'package.json'))) ?? {}
   const roots = configuredProfilePlugins(manifest)

@@ -24,6 +24,7 @@ test('returns alreadySeeded:true when readMarketState reports installed version 
   let installCalled = false
   const res = await ensureMarketSeeded({
     dshRoot: '/stub/dsh',
+    profile: 'default',
     readMarketState: async () => ({ installedVersion: '1.45.1' }),
     installMarketShared: async () => {
       installCalled = true
@@ -37,6 +38,7 @@ test('returns alreadySeeded:true when readMarketState reports dependency without
   let installCalled = false
   const res = await ensureMarketSeeded({
     dshRoot: '/stub/dsh',
+    profile: 'default',
     readMarketState: async () => ({ dependency: '^1.45.1' }),
     installMarketShared: async () => {
       installCalled = true
@@ -68,6 +70,7 @@ test('fresh profile calls installMarketShared once with dshHome, profile, and re
 test('installMarketShared throwing does not reject; returns ok:false with detail', async () => {
   const res = await ensureMarketSeeded({
     dshRoot: '/custom/dsh',
+    profile: 'default',
     readMarketState: async () => ({ dependency: undefined, installedVersion: undefined }),
     installMarketShared: async () => {
       throw new Error('network unreachable / offline')
@@ -80,6 +83,7 @@ test('installMarketShared throwing does not reject; returns ok:false with detail
 test('readMarketState throwing is caught and returns ok:false with detail', async () => {
   const res = await ensureMarketSeeded({
     dshRoot: '/custom/dsh',
+    profile: 'default',
     readMarketState: async () => {
       throw new Error('EACCES: permission denied')
     },
@@ -197,5 +201,13 @@ test('idempotent on second call: mtime of pnpm-workspace.yaml is unchanged', asy
 
   const stat2 = await stat(workspacePath)
   assert.equal(stat1.mtimeMs, stat2.mtimeMs)
+})
+
+test('ensureMarketSeeded returns ok:false when profile is missing or invalid', async () => {
+  const res1 = await ensureMarketSeeded({})
+  assert.deepEqual(res1, { ok: false, detail: 'profile is required' })
+
+  const res2 = await ensureMarketSeeded({ profile: 'INVALID PROFILE!' })
+  assert.deepEqual(res2, { ok: false, detail: 'profile is required' })
 })
 

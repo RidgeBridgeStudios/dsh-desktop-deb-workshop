@@ -307,7 +307,7 @@ export async function exposeMissingGenerationLinks(dshHome, profile = LIVE_PROFI
 async function prepareGenerationProjection(dshHome, profile) {
   const dir = profileDirectory(dshHome, profile)
   const manifestState = await readProfileManifest(dir)
-  const enabled = await resolveEnabledGenerations(dshHome)
+  const enabled = await resolveEnabledGenerations(dshHome, profile)
   const targets = new Map()
   for (const [pluginName, generation] of enabled) {
     targets.set(pluginName, await validateEnabledGenerationTarget(pluginName, generation))

@@ -40,12 +40,12 @@ async function promote(home, { name, version, lock = 'lock-a', id } = {}) {
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 test('registry layout nests under profiles/.generations', () => {
-  const layout = registryLayout('/h')
+  const layout = registryLayout('/h', 'default')
   assert.equal(layout.root, join('/h', 'profiles', '.generations'))
   assert.equal(layout.generations, join('/h', 'profiles', '.generations', 'live'))
   assert.equal(layout.staging, join('/h', 'profiles', '.generations', 'staging'))
   assert.equal(layout.trash, join('/h', 'profiles', '.generations', 'trash'))
-  assert.equal(layout.desiredPointer, join('/h', 'profiles', '.generations', 'desired.json'))
+  assert.equal(layout.desiredPointer, join('/h', 'profiles', '.generations', 'desired', 'default.json'))
   assert.equal(layout.lockFile, join('/h', 'profiles', '.generations', '.lock'))
 })
 
@@ -78,25 +78,26 @@ test('generation id rejects unsafe names and versions', () => {
 
 test('desired round-trips sorted and creates its directory', async (t) => {
   const home = await scratch(t)
-  await writeDesired(home, ['b+2.0.0+bbbbbbbbbbbb', 'a+1.0.0+aaaaaaaaaaaa'])
-  const onDisk = JSON.parse(await readFile(registryLayout(home).desiredPointer, 'utf8'))
+  await writeDesired(home, 'default', ['b+2.0.0+bbbbbbbbbbbb', 'a+1.0.0+aaaaaaaaaaaa'])
+  const onDisk = JSON.parse(await readFile(registryLayout(home, 'default').desiredPointer, 'utf8'))
   assert.deepEqual(onDisk, ['a+1.0.0+aaaaaaaaaaaa', 'b+2.0.0+bbbbbbbbbbbb'])
-  assert.deepEqual(await readDesired(home), ['a+1.0.0+aaaaaaaaaaaa', 'b+2.0.0+bbbbbbbbbbbb'])
+  assert.deepEqual(await readDesired(home, 'default'), ['a+1.0.0+aaaaaaaaaaaa', 'b+2.0.0+bbbbbbbbbbbb'])
 })
 
 test('reading a missing desired pointer yields an empty list', async (t) => {
   const home = await scratch(t)
-  assert.deepEqual(await readDesired(home), [])
+  assert.deepEqual(await readDesired(home, 'default'), [])
 })
 
 test('a corrupt desired pointer is rejected, never treated as empty', async (t) => {
   const home = await scratch(t)
-  const layout = await ensureRegistryDirectories(home)
+  const layout = registryLayout(home, 'default')
+  await mkdir(layout.desiredDir, { recursive: true })
   await writeFile(layout.desiredPointer, '{ not json', 'utf8')
-  await assert.rejects(() => readDesired(home), /invalid JSON/u)
+  await assert.rejects(() => readDesired(home, 'default'), /invalid JSON/u)
 
   await writeFile(layout.desiredPointer, JSON.stringify({ plugins: [] }), 'utf8')
-  await assert.rejects(() => readDesired(home), /array of generation ids/u)
+  await assert.rejects(() => readDesired(home, 'default'), /array of generation ids/u)
 })
 
 test('the registry lock serializes concurrent operations', async (t) => {
@@ -114,7 +115,7 @@ test('the registry lock serializes concurrent operations', async (t) => {
   })
   await Promise.all([first, second])
   assert.deepEqual(events, ['first-start', 'first-end', 'second-start', 'second-end'])
-  const lock = await stat(registryLayout(home).lockFile).then(() => true, () => false)
+  const lock = await stat(registryLayout(home, 'default').lockFile).then(() => true, () => false)
   assert.equal(lock, false)
 })
 
@@ -155,7 +156,7 @@ test('release happens even when the locked operation throws', async (t) => {
       throw new Error('boom')
     })
   )
-  const lock = await stat(registryLayout(home).lockFile).then(() => true, () => false)
+  const lock = await stat(registryLayout(home, 'default').lockFile).then(() => true, () => false)
   assert.equal(lock, false)
 })
 
@@ -181,42 +182,42 @@ test('disableGeneration drops every generation of one plugin only', async (t) =>
   const first = await promote(home, { name: 'example-plugin', version: '1.0.0', lock: 'a' })
   const second = await promote(home, { name: 'example-plugin', version: '2.0.0', lock: 'b' })
   const keeper = await promote(home, { name: 'other-plugin', version: '1.0.0', lock: 'c' })
-  await writeDesired(home, [first.id, second.id, keeper.id])
+  await writeDesired(home, 'default', [first.id, second.id, keeper.id])
 
-  assert.equal(await disableGeneration(home, 'example-plugin'), true)
-  assert.deepEqual(await readDesired(home), [keeper.id])
-  assert.equal(await disableGeneration(home, 'example-plugin'), false)
+  assert.equal(await disableGeneration(home, 'default', 'example-plugin'), true)
+  assert.deepEqual(await readDesired(home, 'default'), [keeper.id])
+  assert.equal(await disableGeneration(home, 'default', 'example-plugin'), false)
 })
 
 test('resolveEnabledGenerations maps desired ids to names and skips shared-tree packages', async (t) => {
   const home = await scratch(t)
   const plugin = await promote(home, { name: 'example-plugin', version: '1.0.0' })
   const market = await promote(home, { name: 'dshmarket', version: '9.9.9' })
-  await writeDesired(home, [plugin.id, market.id])
+  await writeDesired(home, 'default', [plugin.id, market.id])
 
-  const enabled = await resolveEnabledGenerations(home)
+  const enabled = await resolveEnabledGenerations(home, 'default')
   assert.deepEqual([...enabled.keys()], ['example-plugin'])
   assert.equal(enabled.get('example-plugin').id, plugin.id)
 })
 
 test('resolveEnabledGenerations fails closed on a missing desired generation', async (t) => {
   const home = await scratch(t)
-  await writeDesired(home, ['ghost+1.0.0+deadbeefdead'])
-  await assert.rejects(() => resolveEnabledGenerations(home), /missing or unreadable/u)
+  await writeDesired(home, 'default', ['ghost+1.0.0+deadbeefdead'])
+  await assert.rejects(() => resolveEnabledGenerations(home, 'default'), /missing or unreadable/u)
 })
 
 test('collectUnreferencedGenerations reports only unpointed generations', async (t) => {
   const home = await scratch(t)
   const kept = await promote(home, { name: 'kept', version: '1.0.0' })
   const orphan = await promote(home, { name: 'orphan', version: '1.0.0' })
-  await writeDesired(home, [kept.id])
-  assert.deepEqual(await collectUnreferencedGenerations(home), [orphan.id])
+  await writeDesired(home, 'default', [kept.id])
+  assert.deepEqual(await collectUnreferencedGenerations(home, 'default'), [orphan.id])
 })
 
 test('collectUnreferencedGenerations fails closed when desired points at a missing generation', async (t) => {
   const home = await scratch(t)
-  await writeDesired(home, ['ghost+1.0.0+deadbeefdead'])
-  await assert.rejects(() => collectUnreferencedGenerations(home), /missing or unreadable/u)
+  await writeDesired(home, 'default', ['ghost+1.0.0+deadbeefdead'])
+  await assert.rejects(() => collectUnreferencedGenerations(home, 'default'), /missing or unreadable/u)
 })
 
 test('sweepRegistry removes staging leftovers and unreferenced generations', async (t) => {
@@ -224,7 +225,7 @@ test('sweepRegistry removes staging leftovers and unreferenced generations', asy
   const layout = await ensureRegistryDirectories(home)
   const kept = await promote(home, { name: 'kept', version: '1.0.0' })
   await promote(home, { name: 'orphan', version: '1.0.0' })
-  await writeDesired(home, [kept.id])
+  await writeDesired(home, 'default', [kept.id])
 
   await mkdir(join(layout.staging, 'leftover'), { recursive: true })
   await mkdir(join(layout.trash, 'old'), { recursive: true })
@@ -236,4 +237,14 @@ test('sweepRegistry removes staging leftovers and unreferenced generations', asy
   assert.equal(staging, true)
   const keptDir = await stat(kept.directory).then(() => true, () => false)
   assert.equal(keptDir, true)
+})
+
+test('arity guards reject calls missing profile parameter', async (t) => {
+  const home = await scratch(t)
+  assert.throws(() => registryLayout(home), /profile is required/u)
+  await assert.rejects(() => readDesired(home), /profile is required/u)
+  await assert.rejects(() => writeDesired(home, []), /profile is required/u)
+  await assert.rejects(() => resolveEnabledGenerations(home), /profile is required/u)
+  await assert.rejects(() => disableGeneration(home), /profile is required/u)
+  await assert.rejects(() => collectUnreferencedGenerations(home), /profile is required/u)
 })

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { LIVE_PROFILE, profileDirectory } from './paths.mjs'
+import { profileDirectory, PROFILE_NAME_PATTERN } from './paths.mjs'
 import { isProtectedPlugin, removalBackupRoot, removePluginSafely } from './plugin-removal.mjs'
 import { disableGeneration, listGenerations, readDesired, writeDesired } from './registry.mjs'
 import { projectGenerations, publishInstalledGeneration } from './projection.mjs'
@@ -47,12 +47,16 @@ export async function uninstallPlugin(options = {}) {
   const {
     dshHome,
     packageName,
-    profile = LIVE_PROFILE,
+    profile,
     dshEntryPath,
     nodeExecutablePath,
     now,
     operations = {}
   } = options
+
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
 
   if (isProtectedPlugin(packageName)) {
     throw new Error(`Refusing to remove core package ${packageName}`)
@@ -69,7 +73,7 @@ export async function uninstallPlugin(options = {}) {
   }
 
   const realDisable = async ({ entry, removalId }) => {
-    await disableGeneration(dshHome, packageName)
+    await disableGeneration(dshHome, profile, packageName)
   }
 
   const realDetach = async ({ entry, removalId }) => {
@@ -111,6 +115,7 @@ export async function uninstallPlugin(options = {}) {
 
   return removePluginSafely({
     dshHome,
+    profile,
     pluginName: packageName,
     now,
     operations: activeOperations
@@ -122,13 +127,17 @@ export async function upgradePlugin(options = {}) {
     dshHome,
     pluginName,
     targetVersion,
-    profile = LIVE_PROFILE,
+    profile,
     verifyNormalBoot,
     restartDaemon,
     install,
     publish,
     ...extraOptions
   } = options
+
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
 
   const installFn = install ?? (async ({ pluginName: pkg, targetVersion: ver }) => {
     const spec = ver ? `${pkg}@${ver}` : pkg
@@ -141,11 +150,11 @@ export async function upgradePlugin(options = {}) {
     })
     if (!result.ok) throw new Error(result.detail ?? 'generation installation failed')
 
-    const desired = await readDesired(dshHome)
+    const desired = await readDesired(dshHome, profile)
     const generations = await listGenerations(dshHome)
     const byId = new Map(generations.map((generation) => [generation.id, generation]))
     const kept = desired.filter((id) => byId.get(id)?.pluginName !== result.generation.pluginName)
-    await writeDesired(dshHome, [...kept, result.generation.id])
+    await writeDesired(dshHome, profile, [...kept, result.generation.id])
     return result
   })
 

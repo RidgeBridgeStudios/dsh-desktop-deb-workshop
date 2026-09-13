@@ -3,14 +3,24 @@ import { existsSync } from 'node:fs'
 import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export function registryLayout(dshHome) {
+import { PROFILE_NAME_PATTERN } from './paths.mjs'
+
+function assertValidProfile(profile) {
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+}
+
+export function registryLayout(dshHome, profile) {
+  assertValidProfile(profile)
   const root = join(dshHome, 'profiles', '.generations')
   return {
     root,
     generations: join(root, 'live'),
     staging: join(root, 'staging'),
     trash: join(root, 'trash'),
-    desiredPointer: join(root, 'desired.json'),
+    desiredDir: join(root, 'desired'),
+    desiredPointer: join(root, 'desired', `${profile}.json`),
     lockFile: join(root, '.lock')
   }
 }
@@ -38,8 +48,17 @@ export function assertSafeVersion(version, context = 'Generation version') {
 }
 
 export async function ensureRegistryDirectories(dshHome) {
-  const layout = registryLayout(dshHome)
-  for (const dir of [layout.generations, layout.staging, layout.trash]) {
+  const root = join(dshHome, 'profiles', '.generations')
+  const layout = {
+    root,
+    generations: join(root, 'live'),
+    staging: join(root, 'staging'),
+    trash: join(root, 'trash'),
+    desiredDir: join(root, 'desired'),
+    desiredPointer: join(root, 'desired.json'),
+    lockFile: join(root, '.lock')
+  }
+  for (const dir of [layout.generations, layout.staging, layout.trash, layout.desiredDir]) {
     await mkdir(dir, { recursive: true })
   }
   return layout
@@ -53,6 +72,16 @@ export function generationId(pluginName, version, lockfileText) {
   return `${safeName}+${version}+${digest}`
 }
 
+async function lockAgeMs(path) {
+  try {
+    const stats = await stat(path)
+    return Date.now() - stats.mtimeMs
+  } catch (error) {
+    if (error?.code === 'ENOENT') return undefined
+    throw error
+  }
+}
+
 async function readPointer(path) {
   let text
   try {
@@ -60,7 +89,9 @@ async function readPointer(path) {
   } catch (error) {
     if (error?.code === 'ENOENT') return []
     throw new Error(
-      `Generation pointer could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      `Generation pointer could not be read at ${path}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
       { cause: error }
     )
   }
@@ -93,8 +124,10 @@ async function writePointerAtomically(path, ids) {
 
 export async function withRegistryLock(dshHome, run, options = {}) {
   const { staleAfterMs = 20 * 60 * 1000, retryMs = 500, timeoutMs = 15 * 60 * 1000 } = options
-  const { lockFile, root } = registryLayout(dshHome)
+  const root = join(dshHome, 'profiles', '.generations')
+  const lockFile = join(root, '.lock')
   await mkdir(root, { recursive: true })
+
   const deadline = Date.now() + timeoutMs
 
   for (;;) {
@@ -110,8 +143,10 @@ export async function withRegistryLock(dshHome, run, options = {}) {
         await rm(lockFile, { force: true }).catch(() => undefined)
         continue
       }
-      if (Date.now() > deadline) {
-        throw new Error('Another plugin operation is holding the registry lock.')
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out after ${timeoutMs}ms waiting for another process holding the registry lock at ${lockFile}.`
+        )
       }
       await new Promise((resolve) => setTimeout(resolve, retryMs))
     }
@@ -124,14 +159,6 @@ export async function withRegistryLock(dshHome, run, options = {}) {
   }
 }
 
-async function lockAgeMs(lockFile) {
-  try {
-    const { mtimeMs } = await stat(lockFile)
-    return Date.now() - mtimeMs
-  } catch {
-    return undefined
-  }
-}
 
 const META_NAME = 'generation.json'
 
@@ -180,7 +207,7 @@ export async function writeGenerationMeta(directory, meta) {
 }
 
 async function listGenerationDirectoryIds(dshHome) {
-  const { generations } = registryLayout(dshHome)
+  const generations = join(dshHome, 'profiles', '.generations', 'live')
   let entries
   try {
     entries = await readdir(generations, { withFileTypes: true })
@@ -197,7 +224,7 @@ async function listGenerationDirectoryIds(dshHome) {
 }
 
 export async function listGenerations(dshHome) {
-  const { generations } = registryLayout(dshHome)
+  const generations = join(dshHome, 'profiles', '.generations', 'live')
   const ids = await listGenerationDirectoryIds(dshHome)
   const found = []
   for (const id of ids) {
@@ -214,22 +241,26 @@ export async function listGenerations(dshHome) {
   return found
 }
 
-export async function readDesired(dshHome) {
-  return readPointer(registryLayout(dshHome).desiredPointer)
+export async function readDesired(dshHome, profile) {
+  assertValidProfile(profile)
+  const layout = registryLayout(dshHome, profile)
+  return readPointer(layout.desiredPointer)
 }
 
-export async function writeDesired(dshHome, generationIds) {
-  const layout = registryLayout(dshHome)
-  await mkdir(layout.root, { recursive: true })
+export async function writeDesired(dshHome, profile, generationIds) {
+  assertValidProfile(profile)
+  const layout = registryLayout(dshHome, profile)
+  await mkdir(layout.desiredDir, { recursive: true })
   await writePointerAtomically(layout.desiredPointer, generationIds)
 }
 
-export async function disableGeneration(dshHome, pluginName) {
-  const [desired, generations] = await Promise.all([readDesired(dshHome), listGenerations(dshHome)])
+export async function disableGeneration(dshHome, profile, pluginName) {
+  assertValidProfile(profile)
+  const [desired, generations] = await Promise.all([readDesired(dshHome, profile), listGenerations(dshHome)])
   const byId = new Map(generations.map((generation) => [generation.id, generation]))
   const next = desired.filter((id) => byId.get(id)?.pluginName !== pluginName)
   if (next.length === desired.length) return false
-  await writeDesired(dshHome, next)
+  await writeDesired(dshHome, profile, next)
   return true
 }
 
@@ -238,8 +269,9 @@ export async function isGenerationPlugin(dshHome, pluginName) {
   return generations.some((generation) => generation.pluginName === pluginName)
 }
 
-export async function resolveEnabledGenerations(dshHome) {
-  const [desired, all] = await Promise.all([readDesired(dshHome), listGenerations(dshHome)])
+export async function resolveEnabledGenerations(dshHome, profile) {
+  assertValidProfile(profile)
+  const [desired, all] = await Promise.all([readDesired(dshHome, profile), listGenerations(dshHome)])
   const byId = new Map(all.map((generation) => [generation.id, generation]))
   const enabled = new Map()
   for (const id of desired) {
@@ -253,10 +285,11 @@ export async function resolveEnabledGenerations(dshHome) {
   return enabled
 }
 
-export async function collectUnreferencedGenerations(dshHome) {
-  const layout = registryLayout(dshHome)
+export async function collectUnreferencedGenerations(dshHome, profile) {
+  assertValidProfile(profile)
+  const layout = registryLayout(dshHome, profile)
   const [desired, directoryIds] = await Promise.all([
-    readDesired(dshHome),
+    readDesired(dshHome, profile),
     listGenerationDirectoryIds(dshHome)
   ])
   const known = new Set(directoryIds)
@@ -274,41 +307,74 @@ export async function collectUnreferencedGenerations(dshHome) {
 }
 
 export async function sweepRegistry(dshHome) {
-  const layout = registryLayout(dshHome)
-  const removed = []
-  const failed = []
+  return withRegistryLock(dshHome, async () => {
+    const root = join(dshHome, 'profiles', '.generations')
+    const desiredDir = join(root, 'desired')
+    const staging = join(root, 'staging')
+    const trash = join(root, 'trash')
+    const generations = join(root, 'live')
+    const removed = []
+    const failed = []
 
-  const unreferenced = await collectUnreferencedGenerations(dshHome)
-  for (const dir of [layout.staging, layout.trash]) {
-    const label = dir === layout.staging ? 'staging' : 'trash'
-    let entries = []
+    let desiredFiles = []
     try {
-      entries = await readdir(dir)
-    } catch {
-      continue
-    }
-    for (const name of entries) {
+      desiredFiles = await readdir(desiredDir)
+    } catch {}
+
+    const allReferenced = new Set()
+    for (const file of desiredFiles) {
+      if (!file.endsWith('.json')) continue
       try {
-        await rm(join(dir, name), { recursive: true, force: true })
-        removed.push(`${label}/${name}`)
+        const ids = await readPointer(join(desiredDir, file))
+        for (const id of ids) {
+          allReferenced.add(id)
+        }
+      } catch {}
+    }
+    const legacyDesired = join(root, 'desired.json')
+    if (existsSync(legacyDesired)) {
+      try {
+        const ids = await readPointer(legacyDesired)
+        for (const id of ids) {
+          allReferenced.add(id)
+        }
+      } catch {}
+    }
+
+    const directoryIds = await listGenerationDirectoryIds(dshHome)
+    const unreferenced = directoryIds.filter((id) => !allReferenced.has(id))
+
+    for (const dir of [staging, trash]) {
+      const label = dir === staging ? 'staging' : 'trash'
+      let entries = []
+      try {
+        entries = await readdir(dir)
       } catch {
-        failed.push(`${label}/${name}`)
+        continue
+      }
+      for (const name of entries) {
+        try {
+          await rm(join(dir, name), { recursive: true, force: true })
+          removed.push(`${label}/${name}`)
+        } catch {
+          failed.push(`${label}/${name}`)
+        }
       }
     }
-  }
 
-  await mkdir(layout.trash, { recursive: true })
-  for (const id of unreferenced) {
-    const directory = join(layout.generations, id)
-    const trashed = join(layout.trash, `${id}.${randomUUID()}`)
-    try {
-      await rename(directory, trashed)
-      await rm(trashed, { recursive: true, force: true })
-      removed.push(id)
-    } catch {
-      failed.push(id)
+    await mkdir(trash, { recursive: true })
+    for (const id of unreferenced) {
+      const directory = join(generations, id)
+      const trashed = join(trash, `${id}.${randomUUID()}`)
+      try {
+        await rename(directory, trashed)
+        await rm(trashed, { recursive: true, force: true })
+        removed.push(id)
+      } catch {
+        failed.push(id)
+      }
     }
-  }
 
-  return { removed, failed }
+    return { removed, failed }
+  })
 }

@@ -1,0 +1,4 @@
+dsh-desktop: file-in-etc-not-marked-as-conffile [etc/apparmor.d/usr.bin.dsh-desktop]
+dsh-desktop: file-in-etc-not-marked-as-conffile [etc/apt/apt.conf.d/51dsh-desktop-unattended-upgrades]
+dsh-desktop: package-contains-eslint-config-file [usr/share/dsh-desktop/node_modules/pnpm/dist/node_modules/err-code/.eslintrc.json]
+dsh-desktop: package-contains-eslint-config-file [usr/share/dsh-desktop/node_modules/pnpm/dist/node_modules/socks/.eslintrc.cjs]

@@ -127,6 +127,7 @@ test('installMarketShared with dshVersion 0.2.0 rejects before invoking the spaw
   await assert.rejects(
     () => installMarketShared({
       dshHome: '/tmp/ignored',
+      profile: 'default',
       dshVersion: '0.2.0',
       runPlugin: runPluginSpy
     }),
@@ -145,6 +146,7 @@ test('installMarketShared with dshVersion 0.1.5-rc.1 proceeds and calls runPlugi
   const { installMarketShared } = await import('../usr/share/dsh-desktop/lib/plugin-manager/market-backend.mjs')
   await installMarketShared({
     dshHome: '/tmp/ignored',
+    profile: 'default',
     dshVersion: '0.1.5-rc.1',
     runPlugin: runPluginSpy,
     dshEntryPath: '/dev/null'
@@ -163,6 +165,7 @@ test('installMarketShared with resolveRunningDshVersion returning null rejects w
   await assert.rejects(
     () => installMarketShared({
       dshHome: '/tmp/nonexistent-home-12345',
+      profile: 'default',
       resolveDshVersion: () => null,
       runPlugin: runPluginSpy
     }),
@@ -189,6 +192,7 @@ test('runDshPlugin with nodeExecutablePath=/usr/bin/electron sets ELECTRON_RUN_A
   await runDshPlugin({
     dshEntryPath: '/entry.js',
     nodeExecutablePath: '/usr/bin/electron',
+    profile: 'default',
     args: [],
     spawnProcess: fakeSpawn
   })
@@ -213,6 +217,7 @@ test('runDshPlugin with pre-existing ELECTRON_RUN_AS_NODE="" still sets it to 1'
   await runDshPlugin({
     dshEntryPath: '/entry.js',
     nodeExecutablePath: '/usr/bin/electron',
+    profile: 'default',
     environment: { ELECTRON_RUN_AS_NODE: '' },
     args: [],
     spawnProcess: fakeSpawn

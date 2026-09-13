@@ -10,7 +10,9 @@ const execFileAsync = promisify(execFile);
 export const DEFAULT_RETENTION = Object.freeze({
   'pre-update': 5,
   'pre-plugin-mutation': 3,
-  'daily': 1
+  'daily': 1,
+  'pre-profile-delete': 1,
+  'pre-profile-restore': 3
 });
 
 export const FILE_SET_CANDIDATES = Object.freeze([
@@ -71,6 +73,7 @@ export function verifyArchiveChecksum(archivePath) {
 export async function pruneSnapshots(options = {}) {
   const home = options.dshHome || defaultDshHome();
   const reason = options.reason;
+  const profile = options.profile;
   const backupsDir = path.join(home, 'backups');
   if (!fs.existsSync(backupsDir)) return [];
 
@@ -84,9 +87,17 @@ export async function pruneSnapshots(options = {}) {
   const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
   const entries = fs.readdirSync(backupsDir, { withFileTypes: true });
-  const regex = reason
-    ? new RegExp(`^.*-${escapeRegex(reason)}\\.tar\\.(zst|gz)$`)
-    : /^.*\\.tar\\.(zst|gz)$/;
+  let regex
+  if (profile) {
+    const safeProfile = String(profile).replace(/\.\./g, '_').replace(/[^a-z0-9._-]/gi, '_').slice(0, 64);
+    regex = reason
+      ? new RegExp(`^.*-${escapeRegex(reason)}-${escapeRegex(safeProfile)}\\.tar\\.(zst|gz)$`)
+      : new RegExp(`^.*-${escapeRegex(safeProfile)}\\.tar\\.(zst|gz)$`);
+  } else {
+    regex = reason
+      ? new RegExp(`^.*-${escapeRegex(reason)}\\.tar\\.(zst|gz)$`)
+      : /^.*\\.tar\\.(zst|gz)$/;
+  }
 
   const archives = [];
   for (const entry of entries) {
@@ -127,13 +138,15 @@ export async function pruneSnapshots(options = {}) {
 export async function createSnapshot(options = {}) {
   const home = options.dshHome || defaultDshHome();
   const reason = options.reason || 'manual';
+  const profile = options.profile;
   const clock = options.clock || (() => Date.now());
 
   if (!home || !fs.existsSync(home)) {
     throw new Error(`dshHome directory does not exist: ${home}`);
   }
 
-  const requiredFiles = options.requiredFiles || ['profiles/default/package.json'];
+  const defaultReq = profile ? [`profiles/${profile}/package.json`] : ['profiles/default/package.json'];
+  const requiredFiles = options.requiredFiles || defaultReq;
   for (const req of requiredFiles) {
     const full = path.join(home, req);
     if (!fs.existsSync(full)) {
@@ -141,9 +154,17 @@ export async function createSnapshot(options = {}) {
     }
   }
 
+  const candidates = profile
+    ? [
+        `profiles/${profile}`,
+        `profiles/.generations/desired/${profile}.json`,
+        `recovery/plugin-removals/${profile}.json`
+      ]
+    : FILE_SET_CANDIDATES;
+
   // Collect existing files/directories from candidate set
   const present = [];
-  for (const candidate of FILE_SET_CANDIDATES) {
+  for (const candidate of candidates) {
     const candidatePath = path.join(home, candidate);
     if (fs.existsSync(candidatePath)) {
       present.push(candidate);
@@ -163,7 +184,10 @@ export async function createSnapshot(options = {}) {
 
   const ts = options.timestamp || new Date(clock()).toISOString().replace(/[:.]/g, '-');
   const safeReason = String(reason).replace(/\.\./g, '_').replace(/[^a-z0-9._-]/gi, '_').slice(0, 64);
-  const archiveName = `${ts}-${safeReason}${ext}`;
+  const safeProfile = profile ? String(profile).replace(/\.\./g, '_').replace(/[^a-z0-9._-]/gi, '_').slice(0, 64) : null;
+  const archiveName = safeProfile
+    ? `${ts}-${safeReason}-${safeProfile}${ext}`
+    : `${ts}-${safeReason}${ext}`;
   const archivePath = path.join(backupsDir, archiveName);
   const shaPath = `${archivePath}.sha256`;
 
@@ -175,7 +199,10 @@ export async function createSnapshot(options = {}) {
     archivePath
   ];
 
-  const exclusions = options.exclusions || DEFAULT_EXCLUSIONS;
+  const defaultExcl = profile
+    ? [...DEFAULT_EXCLUSIONS, `profiles/${profile}/node_modules`, `profiles/${profile}/node_modules/*`]
+    : DEFAULT_EXCLUSIONS;
+  const exclusions = options.exclusions || defaultExcl;
   for (const exc of exclusions) {
     tarArgs.push(`--exclude=${exc}`);
   }
@@ -214,6 +241,7 @@ export async function createSnapshot(options = {}) {
   await pruneSnapshots({
     dshHome: home,
     reason,
+    profile,
     keep: options.keep
   });
 
@@ -224,3 +252,57 @@ export async function createSnapshot(options = {}) {
     reason
   };
 }
+
+export async function listSnapshots(dshHome = defaultDshHome(), options = {}) {
+  const profile = options.profile;
+  const snapDir = snapshotsDirectory(dshHome);
+  if (!fs.existsSync(snapDir)) return [];
+  const entries = await fs.promises.readdir(snapDir);
+  const snapshots = [];
+  for (const entry of entries) {
+    if (!entry.endsWith('.tar.gz') && !entry.endsWith('.tar.zst')) continue;
+    if (profile) {
+      const match = entry.match(/^\d+-[a-z0-9._-]+-(.+)\.tar\.(?:gz|zst)$/);
+      if (match && match[1] === profile) {
+        snapshots.push({
+          name: entry,
+          path: path.join(snapDir, entry),
+          profile
+        });
+      }
+    } else {
+      snapshots.push({
+        name: entry,
+        path: path.join(snapDir, entry)
+      });
+    }
+  }
+  snapshots.sort((a, b) => b.name.localeCompare(a.name));
+  return snapshots;
+}
+
+export async function restoreSnapshot(archivePath, dshHome = defaultDshHome(), options = {}) {
+  const profile = options.profile;
+  if (!archivePath || !fs.existsSync(archivePath)) {
+    throw new Error(`Snapshot archive not found: ${archivePath}`);
+  }
+  verifyArchiveChecksum(archivePath);
+
+  if (profile) {
+    await createSnapshot({
+      dshHome,
+      reason: 'pre-profile-restore',
+      profile
+    });
+  }
+
+  const useZstd = archivePath.endsWith('.tar.zst');
+  const tarArgs = ['-xf', archivePath, '-C', dshHome];
+  if (useZstd) {
+    tarArgs.unshift('--zstd');
+  }
+
+  await execFileAsync('tar', tarArgs);
+  return { ok: true, archivePath };
+}
+

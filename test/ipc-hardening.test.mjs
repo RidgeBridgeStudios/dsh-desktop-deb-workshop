@@ -68,7 +68,15 @@ test('every IPC handler rejects untrusted sender', async () => {
     ['market:uninstall', {}],
     ['recovery:action', 'safe-mode'],
     ['safe-mode:action', 'launch', []],
-    ['safe-mode:model', {}]
+    ['safe-mode:model', {}],
+    ['profile:list'],
+    ['profile:create', {}],
+    ['profile:rename', {}],
+    ['profile:delete', {}],
+    ['profile:set-active', 'x'],
+    ['profile:snapshots', 'x'],
+    ['profile:restore', {}],
+    ['profile:picker-resolve', {}]
   ]
 
   for (const [channel, ...args] of channels) {
@@ -78,6 +86,86 @@ test('every IPC handler rejects untrusted sender', async () => {
       /Untrusted IPC sender/,
       `${channel} must reject untrusted sender`
     )
+  }
+})
+
+test('profile IPC handlers validate arguments and fail closed', async () => {
+  const handlers = {}
+  const mockIpc = {
+    handle(channel, fn) {
+      handlers[channel] = fn
+    }
+  }
+  const { mkdtempSync, writeFileSync, rmSync, mkdirSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-ipc-profile-'))
+
+  try {
+    registerIpcHandlers(mockIpc, { dshHome: home })
+    const trusted = { senderFrame: { url: 'http://127.0.0.1:3080' } }
+
+    // profile:delete rejects when confirm !== name
+    await assert.rejects(
+      () => handlers['profile:delete'](trusted, { name: 'web-dev', confirm: 'default' }),
+      /confirm must equal name/u
+    )
+
+    // profile:restore rejects when safetyFirst !== true
+    await assert.rejects(
+      () => handlers['profile:restore'](trusted, { name: 'web-dev', snapshotPath: '/x', safetyFirst: false }),
+      /safetyFirst/u
+    )
+
+    // profile:restore rejects when realpath(snapshotPath) is outside <home>/backups/
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'dsh-out-backups-'))
+    const outsideFile = path.join(tmpDir, 'backup-web-dev.tar.zst')
+    writeFileSync(outsideFile, 'dummy')
+    try {
+      await assert.rejects(
+        () => handlers['profile:restore'](trusted, { name: 'web-dev', snapshotPath: outsideFile, safetyFirst: true }),
+        /outside.*backups/u
+      )
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+
+    // profile:restore rejects when the basename does not end with -<name>.tar.zst or -<name>.tar.gz
+    const backupsDir = path.join(home, 'backups')
+    mkdirSync(backupsDir, { recursive: true })
+    const wrongNameFile = path.join(backupsDir, 'backup-wrong.tar.zst')
+    writeFileSync(wrongNameFile, 'dummy')
+    try {
+      await assert.rejects(
+        () => handlers['profile:restore'](trusted, { name: 'web-dev', snapshotPath: wrongNameFile, safetyFirst: true }),
+        /does not match profile/u
+      )
+    } finally {
+      rmSync(wrongNameFile, { force: true })
+    }
+
+    // profile:picker-resolve rejects when no picker window is open
+    await assert.rejects(
+      () => handlers['profile:picker-resolve'](trusted, { action: 'use', profile: 'x' }),
+      /No picker is open/u
+    )
+
+    // profile:picker-resolve rejects with action not in {'use', 'restore', 'cancel'}
+    await assert.rejects(
+      () => handlers['profile:picker-resolve'](trusted, { action: 'destroy', profile: 'x' }),
+      /Invalid action/u
+    )
+
+    // profile:create and profile:rename reject ../evil as a name
+    await assert.rejects(
+      () => handlers['profile:create'](trusted, { name: '../evil' }),
+      /Invalid profile name/u
+    )
+    await assert.rejects(
+      () => handlers['profile:rename'](trusted, { name: '../evil', displayName: 'Evil' }),
+      /Invalid profile name/u
+    )
+  } finally {
+    rmSync(home, { recursive: true, force: true })
   }
 })
 

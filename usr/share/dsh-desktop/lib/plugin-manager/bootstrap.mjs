@@ -2,23 +2,9 @@ import { mkdir, access, readFile, writeFile, rename, rm } from 'node:fs/promises
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { dshHome as defaultDshHome, profilesRoot, profileDirectory } from './paths.mjs'
+import { dshHome as defaultDshHome, profilesRoot, profileDirectory, PROFILE_NAME_PATTERN } from './paths.mjs'
 import { installMarketShared, readMarketState } from './market-backend.mjs'
 import { MARKET_PACKAGE, RECOMMENDED_MARKET_VERSION } from './market-constants.mjs'
-
-const MANIFEST_BODY = `${JSON.stringify({
-  name: 'dsh-profile-default',
-  version: '1.0.0',
-  private: true,
-  type: 'module',
-  dependencies: {},
-  dsh: {
-    profile: {
-      bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
-      patchReload: 'live'
-    }
-  }
-}, undefined, 2)}\n`
 
 const WORKSPACE_BODY = 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n'
 
@@ -27,6 +13,7 @@ export async function ensureDataDirs(options = {}) {
   const userHome = options.userHome ?? homedir()
   try {
     await mkdir(profilesRoot(dshRoot), { recursive: true })
+    await mkdir(join(profilesRoot(dshRoot), '.generations', 'desired'), { recursive: true })
     await mkdir(join(userHome, '.local', 'share', 'dsh-desktop'), { recursive: true })
     await mkdir(join(dshRoot, '.agent-presets'), { recursive: true })
     return { ok: true }
@@ -35,9 +22,39 @@ export async function ensureDataDirs(options = {}) {
   }
 }
 
-export async function ensureDefaultProfile(options = {}) {
-  const dshRoot = options.dshRoot ?? defaultDshHome()
-  const profileDir = profileDirectory(dshRoot, 'default')
+export async function ensureProfile(home, name = 'default') {
+  let dshRoot
+  let profileName
+  if (typeof home === 'object' && home !== null) {
+    dshRoot = home.dshRoot ?? defaultDshHome()
+    profileName = home.profile ?? name
+  } else {
+    dshRoot = home ?? defaultDshHome()
+    profileName = name
+  }
+
+  if (typeof profileName !== 'string' || !PROFILE_NAME_PATTERN.test(profileName)) {
+    return { ok: false, detail: `Invalid profile name: ${profileName}` }
+  }
+  if (profileName === 'desktop-safe-mode') {
+    return { ok: false, detail: `Cannot ensure reserved profile: ${profileName}` }
+  }
+
+  const manifestBody = `${JSON.stringify({
+    name: `dsh-profile-${profileName}`,
+    version: '1.0.0',
+    private: true,
+    type: 'module',
+    dependencies: {},
+    dsh: {
+      profile: {
+        bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
+        patchReload: 'live'
+      }
+    }
+  }, undefined, 2)}\n`
+
+  const profileDir = profileDirectory(dshRoot, profileName)
   const manifestPath = join(profileDir, 'package.json')
   try {
     try {
@@ -49,7 +66,7 @@ export async function ensureDefaultProfile(options = {}) {
     await mkdir(profileDir, { recursive: true })
     const tmp = `${manifestPath}.tmp-${process.pid}-${Date.now()}`
     try {
-      await writeFile(tmp, MANIFEST_BODY, { mode: 0o644 })
+      await writeFile(tmp, manifestBody, { mode: 0o644 })
       await rename(tmp, manifestPath)
     } finally {
       await rm(tmp, { force: true }).catch(() => undefined)
@@ -66,9 +83,16 @@ export async function ensureDefaultProfile(options = {}) {
   }
 }
 
+export async function ensureDefaultProfile(home) {
+  return ensureProfile(home, 'default')
+}
+
 export async function ensureMarketSeeded(options = {}) {
   const dshRoot = options.dshRoot ?? defaultDshHome()
-  const profile = options.profile ?? 'default'
+  const profile = options.profile
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    return { ok: false, detail: 'profile is required' }
+  }
   const readState = options.readMarketState ?? readMarketState
   const installMarket = options.installMarketShared ?? installMarketShared
   try {

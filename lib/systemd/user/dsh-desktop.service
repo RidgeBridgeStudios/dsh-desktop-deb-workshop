@@ -1,4 +1,5 @@
 [Unit]
+# The systemd unit is a fallback path. The Electron picker stops/restarts this unit via withDaemonStopped.
 Description=DeepSeek Harness Daemon (DSH Desktop)
 After=graphical-session.target network.target
 PartOf=graphical-session.target

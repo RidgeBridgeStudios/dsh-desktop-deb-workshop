@@ -18,17 +18,17 @@ test('protected plugins rejected', async (t) => {
   const home = await scratch(t)
 
   await assert.rejects(
-    () => uninstallPlugin({ dshHome: home, packageName: '@deepseek-ai/dsh-base' }),
+    () => uninstallPlugin({ dshHome: home, profile: 'default', packageName: '@deepseek-ai/dsh-base' }),
     /Refusing to remove core package @deepseek-ai\/dsh-base/
   )
 
   await assert.rejects(
-    () => uninstallPlugin({ dshHome: home, packageName: '@deepseek-ai/custom-tool' }),
+    () => uninstallPlugin({ dshHome: home, profile: 'default', packageName: '@deepseek-ai/custom-tool' }),
     /Refusing to remove core package @deepseek-ai\/custom-tool/
   )
 
   await assert.rejects(
-    () => uninstallPlugin({ dshHome: home, packageName: 'dshmarket' }),
+    () => uninstallPlugin({ dshHome: home, profile: 'default', packageName: 'dshmarket' }),
     /Refusing to remove core package dshmarket/
   )
 })
@@ -38,6 +38,7 @@ test('backup failure leaves disabled', async (t) => {
 
   const result = await uninstallPlugin({
     dshHome: home,
+    profile: 'default',
     packageName: 'third-party-broken',
     operations: {
       backup: async () => {
@@ -51,7 +52,7 @@ test('backup failure leaves disabled', async (t) => {
   assert.equal(result.pending, true)
   assert.match(result.failures[0], /backup failed: EACCES/)
 
-  const ledger = await readLedger(home)
+  const ledger = await readLedger(home, 'default')
   const entry = Object.values(ledger.removals).find((e) => e.pluginName === 'third-party-broken')
   assert.ok(entry)
   assert.equal(entry.status, 'disabled')
@@ -62,6 +63,7 @@ test('detach failure becomes cleanup-pending', async (t) => {
 
   const result = await uninstallPlugin({
     dshHome: home,
+    profile: 'default',
     packageName: 'third-party-broken',
     operations: {
       backup: async () => undefined,
@@ -77,7 +79,7 @@ test('detach failure becomes cleanup-pending', async (t) => {
   assert.equal(result.pending, true)
   assert.match(result.failures[0], /cleanup failed: EBUSY/)
 
-  const ledger = await readLedger(home)
+  const ledger = await readLedger(home, 'default')
   const entry = Object.values(ledger.removals).find((e) => e.pluginName === 'third-party-broken')
   assert.ok(entry)
   assert.equal(entry.status, 'cleanup-pending')
@@ -98,6 +100,7 @@ test('happy path reaches removed', async (t) => {
 
   const result = await uninstallPlugin({
     dshHome: home,
+    profile: 'default',
     packageName: 'third-party-broken'
   })
 
@@ -106,7 +109,7 @@ test('happy path reaches removed', async (t) => {
   assert.equal(result.pending, false)
   assert.deepEqual(result.failures, [])
 
-  const ledger = await readLedger(home)
+  const ledger = await readLedger(home, 'default')
   const entry = Object.values(ledger.removals).find((e) => e.pluginName === 'third-party-broken')
   assert.ok(entry)
   assert.equal(entry.status, 'removed')
@@ -124,6 +127,7 @@ test('upgradePlugin wraps install, publish and verifyNormalBoot', async (t) => {
 
   const result = await upgradePlugin({
     dshHome: home,
+    profile: 'default',
     pluginName: 'third-party-plugin',
     targetVersion: '2.0.0',
     install: async ({ pluginName, targetVersion }) => {

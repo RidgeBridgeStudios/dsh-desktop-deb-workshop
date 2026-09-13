@@ -14,7 +14,7 @@ import {
   MAX_UNCOMPRESSED_BYTES,
   PRESET_ID_PATTERN
 } from './preset-archive.mjs'
-import { dshHome as defaultDshHome, installationClosureDir, LIVE_PROFILE, profileDirectory } from './paths.mjs'
+import { activeProfile, dshHome as defaultDshHome, installationClosureDir, profileDirectory } from './paths.mjs'
 import { isTrustedRequest, sendJson } from './loopback-guard.mjs'
 
 export const PRESET_EXPORT_PATH = '/api/agent-preset.export'
@@ -28,7 +28,7 @@ export class AbortError extends Error {
   }
 }
 
-export function defaultHarnessBase(home = defaultDshHome(), profile = LIVE_PROFILE) {
+export function defaultHarnessBase(home = defaultDshHome(), profile = 'default') {
   return pathToFileURL(profileDirectory(home, profile) + '/').href
 }
 
@@ -103,9 +103,11 @@ export async function handlePresetExport(req, res, options = {}) {
     sourceDshVersion = '0.1.5-rc.1',
     scanRootFn,
     dshHome: home = defaultDshHome(),
-    roots = defaultPresetRoots(home),
-    harnessBase = defaultHarnessBase(home)
+    roots = defaultPresetRoots(home)
   } = options
+
+  const profile = options.profile ?? (await activeProfile(home))
+  const harnessBase = options.harnessBase ?? defaultHarnessBase(home, profile)
 
   if (signal?.aborted) {
     return sendJson(res, 499, { error: 'Client closed request.' })
@@ -256,9 +258,11 @@ export async function handlePresetImportPreview(req, res, options = {}) {
     scanRootFn,
     bodyBuffer: injectedBuffer,
     dshHome: home = defaultDshHome(),
-    roots = defaultPresetRoots(home),
-    harnessBase = defaultHarnessBase(home)
+    roots = defaultPresetRoots(home)
   } = options
+
+  const profile = options.profile ?? (await activeProfile(home))
+  const harnessBase = options.harnessBase ?? defaultHarnessBase(home, profile)
 
   if (signal?.aborted) {
     return sendJson(res, 499, { error: 'Client closed request.' })
@@ -355,9 +359,11 @@ export async function handlePresetImportInstall(req, res, options = {}) {
     scanRootFn,
     bodyBuffer: injectedBuffer,
     dshHome: home = defaultDshHome(),
-    roots = defaultPresetRoots(home),
-    harnessBase = defaultHarnessBase(home)
+    roots = defaultPresetRoots(home)
   } = options
+
+  const profile = options.profile ?? (await activeProfile(home))
+  const harnessBase = options.harnessBase ?? defaultHarnessBase(home, profile)
 
   if (signal?.aborted) {
     return sendJson(res, 499, { error: 'Client closed request.' })
@@ -506,9 +512,12 @@ export async function handlePresetImportInstall(req, res, options = {}) {
 export function createPresetRequestHandler(options = {}) {
   const home = options.dshHome ?? defaultDshHome()
   const roots = options.roots ?? defaultPresetRoots(home)
-  const resolvedOptions = { dshHome: home, roots, ...options }
 
   return async function handlePresetRequest(req, res) {
+    const profile = options.profile ?? (await activeProfile(home))
+    const harnessBase = options.harnessBase ?? defaultHarnessBase(home, profile)
+    const resolvedOptions = { dshHome: home, roots, profile, harnessBase, ...options }
+
     let url
     try {
       url = new URL(req.url ?? '/', 'http://127.0.0.1')

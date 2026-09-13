@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { LIVE_PROFILE, profileDirectory } from './paths.mjs'
+import { profileDirectory, PROFILE_NAME_PATTERN } from './paths.mjs'
 import { MARKET_PACKAGE } from './market-constants.mjs'
 import { installGeneration, isElectronBinary } from './installer.mjs'
 import { disableGeneration, listGenerations, readDesired, writeDesired } from './registry.mjs'
@@ -37,7 +37,10 @@ async function readJson(path) {
   }
 }
 
-export async function readMarketState(dshHome, profile = LIVE_PROFILE) {
+export async function readMarketState(dshHome, profile) {
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
   const dir = profileDirectory(dshHome, profile)
   const manifest = (await readJson(join(dir, 'package.json'))) ?? {}
   const dependency = manifest.dependencies?.[MARKET_PACKAGE]
@@ -59,13 +62,16 @@ export function resolveDshEntry(candidates = []) {
   return found
 }
 
-export function packageNameOf(spec) {
-  const name = String(spec).replace(/@[^@/]+$/u, '')
-  if (!PACKAGE_NAME_PATTERN.test(name)) throw new Error(`Unsafe package spec: ${spec}`)
-  return name
+function packageNameOf(spec) {
+  const at = spec.lastIndexOf('@')
+  if (at <= 0) return spec
+  return spec.slice(0, at)
 }
 
 export function routePluginSpec(spec) {
+  if (typeof spec !== 'string' || !PACKAGE_NAME_PATTERN.test(packageNameOf(spec))) {
+    throw new Error(`Invalid plugin specification: "${spec}"`)
+  }
   return packageNameOf(spec) === MARKET_PACKAGE ? 'shared' : 'generation'
 }
 
@@ -79,13 +85,17 @@ export function runDshPlugin(options) {
   const {
     dshEntryPath,
     nodeExecutablePath = process.execPath,
-    profile = LIVE_PROFILE,
+    profile,
     args,
     environment = process.env,
     cwd,
     timeoutMs = OPERATION_TIMEOUT_MS,
     spawnProcess = spawn
   } = options
+
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
 
   const env = isElectronBinary(nodeExecutablePath)
     ? { ...environment, ELECTRON_RUN_AS_NODE: '1' }
@@ -125,13 +135,18 @@ export async function installMarketShared(options) {
   assertInstallableDshVersion(options)
   const {
     dshHome,
-    profile = LIVE_PROFILE,
+    profile,
     recommendedVersion,
     dshEntryPath = resolveDshEntry(),
     nodeExecutablePath,
     environment,
     runPlugin = runDshPlugin
   } = options
+
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+
   const spec = `${MARKET_PACKAGE}@${recommendedVersion}`
   const { code, output } = await runPlugin({
     dshEntryPath,
@@ -147,12 +162,17 @@ export async function installMarketShared(options) {
 export async function uninstallMarketShared(options) {
   const {
     dshHome,
-    profile = LIVE_PROFILE,
+    profile,
     dshEntryPath = resolveDshEntry(),
     nodeExecutablePath,
     environment,
     runPlugin = runDshPlugin
   } = options
+
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+
   const { code, output } = await runPlugin({
     dshEntryPath,
     nodeExecutablePath,
@@ -166,7 +186,12 @@ export async function uninstallMarketShared(options) {
 
 export async function installCommunityPluginAsGeneration(spec, options) {
   assertInstallableDshVersion(options)
-  const { dshHome, profile = LIVE_PROFILE, expectedVersion, ...installOptions } = options
+  const { dshHome, profile, expectedVersion, ...installOptions } = options
+
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+
   const result = await installGeneration({
     dshHome,
     profile,
@@ -176,22 +201,25 @@ export async function installCommunityPluginAsGeneration(spec, options) {
   })
   if (!result.ok) throw new Error(result.detail ?? 'generation installation failed')
 
-  const desired = await readDesired(dshHome)
+  const desired = await readDesired(dshHome, profile)
   const generations = await listGenerations(dshHome)
   const byId = new Map(generations.map((generation) => [generation.id, generation]))
   const kept = desired.filter((id) => byId.get(id)?.pluginName !== result.generation.pluginName)
-  await writeDesired(dshHome, [...kept, result.generation.id])
+  await writeDesired(dshHome, profile, [...kept, result.generation.id])
   try {
     await publishInstalledGeneration(dshHome, result.generation.pluginName, profile, { syncBundles: true })
   } catch (error) {
-    await writeDesired(dshHome, desired)
+    await writeDesired(dshHome, profile, desired)
     throw error
   }
   return result.generation
 }
 
-export async function disableCommunityPlugin(dshHome, pluginName, options = {}) {
-  if (!await disableGeneration(dshHome, pluginName)) return false
+export async function disableCommunityPlugin(dshHome, profile, pluginName, options = {}) {
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+  if (!await disableGeneration(dshHome, profile, pluginName)) return false
   await options.publish?.(dshHome, pluginName)
   return true
 }

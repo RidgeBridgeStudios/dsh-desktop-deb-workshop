@@ -96,5 +96,30 @@ if ! /usr/bin/node -e "import('$VERSION_MOD').then(m => {
     exit 1
 fi
 
+PROFILE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --profile) PROFILE="$2"; shift 2 ;;
+    --profile=*) PROFILE="${1#*=}"; shift ;;
+    *) break ;;
+  esac
+done
+
+PROFILE_CLI="/usr/share/dsh-desktop/lib/plugin-manager/profile-cli.mjs"
+if [ ! -f "$PROFILE_CLI" ]; then
+  PROFILE_CLI="$DSH_LIB_DIR/plugin-manager/profile-cli.mjs"
+fi
+
+if [ -z "$PROFILE" ]; then
+  PROFILE="$("$DSH_NODE_BIN" "$PROFILE_CLI" --resolve)" || PROFILE="default"
+fi
+
+"$DSH_NODE_BIN" "$PROFILE_CLI" --validate "$PROFILE" || {
+  echo "dsh-desktop-daemon: invalid profile name: $PROFILE" >&2
+  exit 2
+}
+
+# Default profile target: --profile default
 # Critical execution line: --expose-internals passed directly to node binary
-exec /usr/bin/node --expose-internals "$DSH_ENTRY" --profile default
+exec /usr/bin/node --expose-internals "$DSH_ENTRY" --profile "$PROFILE"
+

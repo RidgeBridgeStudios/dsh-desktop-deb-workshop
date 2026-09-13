@@ -81,7 +81,7 @@ test('projects an enabled generation into a link, dependency, bundle and overrid
   const home = await scratch(t)
   const { id, pkg } = await promote(home, 'widget', '1.0.0')
   await writeProfile(home)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
 
   const result = await projectGenerations(home)
   assert.deepEqual(result.linked, ['widget'])
@@ -104,11 +104,11 @@ test('prunes a stale generation symlink when it leaves desired', async (t) => {
   const home = await scratch(t)
   const { id } = await promote(home, 'widget', '1.0.0')
   await writeProfile(home)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
   await projectGenerations(home)
   assert.equal(existsSync(moduleLink(home, 'widget')), true)
 
-  await writeDesired(home, [])
+  await writeDesired(home, 'default', [])
   const result = await projectGenerations(home)
   assert.equal(result.unlinked.includes('widget'), true)
   assert.equal(existsSync(moduleLink(home, 'widget')), false)
@@ -125,7 +125,7 @@ test('never prunes a foreign symlink or a real directory', async (t) => {
   await symlink(foreign, join(modules, 'foreign'))
   await mkdir(join(modules, 'real-dir'))
 
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
   await projectGenerations(home)
 
   assert.equal((await lstat(join(modules, 'foreign'))).isSymbolicLink(), true)
@@ -143,7 +143,7 @@ test('the prune rule recognises absolute targets only (relative links are left a
   const relativeTarget = join('..', '..', '.generations', 'live', id, 'node_modules', 'widget')
   await symlink(relativeTarget, join(modules, 'widget'))
 
-  await writeDesired(home, [])
+  await writeDesired(home, 'default', [])
   await projectGenerations(home)
 
   assert.equal((await lstat(join(modules, 'widget'))).isSymbolicLink(), true)
@@ -155,7 +155,7 @@ test('skips the manifest write when nothing changed (mtime is preserved)', async
   const home = await scratch(t)
   const { id } = await promote(home, 'widget', '1.0.0')
   const dir = await writeProfile(home)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
   await projectGenerations(home)
 
   const manifestPath = join(dir, 'package.json')
@@ -175,7 +175,7 @@ test('cold projection rebuilds the bundle list exactly from desired', async (t) 
   const manifest = profileManifest()
   manifest.dsh.profile.bundles = [...IN_BOX, 'stray-bundle']
   await writeProfile(home, manifest)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
 
   await projectGenerations(home)
   const after = await readProfile(home)
@@ -188,7 +188,7 @@ test('live publish with syncBundles false leaves other bundle entries alone', as
   const manifest = profileManifest()
   manifest.dsh.profile.bundles = [...IN_BOX, 'stray-bundle']
   await writeProfile(home, manifest)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
 
   await publishGenerationManifest(home)
   const after = await readProfile(home)
@@ -202,7 +202,7 @@ test('live publish with syncBundles true reconciles the bundle list', async (t) 
   const manifest = profileManifest()
   manifest.dsh.profile.bundles = [...IN_BOX, 'stray-bundle']
   await writeProfile(home, manifest)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
 
   await publishInstalledGeneration(home, 'widget', LIVE_PROFILE, { syncBundles: true })
   const after = await readProfile(home)
@@ -241,7 +241,7 @@ test('rejects a generation package root that is a symlink out of tree', async (t
   await symlink(outside, join(directory, 'node_modules', 'widget'))
   await writeGenerationMeta(directory, { pluginName: 'widget', version: '1.0.0' })
   await writeProfile(home)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
 
   await assert.rejects(() => projectGenerations(home), /not a real directory/u)
 })
@@ -255,7 +255,7 @@ test('rejects a generation manifest that is a symlink out of tree', async (t) =>
   await writeFile(join(outside, 'package.json'), JSON.stringify({ name: 'widget', version: '1.0.0' }))
   await symlink(join(outside, 'package.json'), join(pkg, 'package.json'))
   await writeProfile(home)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
 
   await assert.rejects(() => projectGenerations(home), /not a real file|outside its package/u)
 })
@@ -265,9 +265,9 @@ test('a failed link switch restores the previous link and rethrows', async (t) =
   const older = await promote(home, 'widget', '1.0.0')
   const newer = await promote(home, 'widget', '2.0.0')
   const dir = await writeProfile(home)
-  await writeDesired(home, [older.id])
+  await writeDesired(home, 'default', [older.id])
   await projectGenerations(home)
-  await writeDesired(home, [newer.id])
+  await writeDesired(home, 'default', [newer.id])
 
   const link = moduleLink(home, 'widget')
   const oldTarget = await readlink(link)
@@ -295,7 +295,7 @@ test('publishes an installed generation through the profile path', async (t) => 
   const home = await scratch(t)
   const { id, pkg } = await promote(home, 'widget', '1.0.0')
   await writeProfile(home)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
 
   const result = await publishInstalledGeneration(home, 'widget')
   assert.deepEqual(result.plugins, ['widget'])
@@ -306,7 +306,7 @@ test('exposes only missing generation links and is a no-op once linked', async (
   const home = await scratch(t)
   const { id, pkg } = await promote(home, 'widget', '1.0.0')
   await writeProfile(home)
-  await writeDesired(home, [id])
+  await writeDesired(home, 'default', [id])
 
   assert.deepEqual(await exposeMissingGenerationLinks(home), ['widget'])
   assert.equal(await readlink(moduleLink(home, 'widget')), pkg)

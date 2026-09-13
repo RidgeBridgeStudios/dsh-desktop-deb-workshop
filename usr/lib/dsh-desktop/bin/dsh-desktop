@@ -68,45 +68,41 @@ EOF
     exit 1
 fi
 
-# Ensure default profile directory and package.json exist before starting
-PROFILE_DIR="${HOME}/.dsh/profiles/default"
-if [ ! -d "$PROFILE_DIR" ]; then
-    mkdir -p "$PROFILE_DIR"
+# Delegate seeding to bootstrap-cli.mjs (seeds the active profile)
+BOOTSTRAP_CLI="/usr/share/dsh-desktop/lib/plugin-manager/bootstrap-cli.mjs"
+if [ ! -f "$BOOTSTRAP_CLI" ]; then
+    SCRIPT_BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd 2>/dev/null || true)"
+    if [ -f "${SCRIPT_BASE}/usr/share/dsh-desktop/lib/plugin-manager/bootstrap-cli.mjs" ]; then
+        BOOTSTRAP_CLI="${SCRIPT_BASE}/usr/share/dsh-desktop/lib/plugin-manager/bootstrap-cli.mjs"
+    elif [ -f "${SCRIPT_BASE}/share/dsh-desktop/lib/plugin-manager/bootstrap-cli.mjs" ]; then
+        BOOTSTRAP_CLI="${SCRIPT_BASE}/share/dsh-desktop/lib/plugin-manager/bootstrap-cli.mjs"
+    fi
 fi
-if [ ! -f "$PROFILE_DIR/package.json" ]; then
-    cat << 'EOF' > "$PROFILE_DIR/package.json"
-{
-  "name": "dsh-profile-default",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "dependencies": {},
-  "dsh": {
-    "profile": {
-      "bundles": [
-        "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app"
-      ],
-      "patchReload": "live"
-    }
-  }
-}
-EOF
-fi
-if [ ! -d "$PROFILE_DIR/node_modules" ]; then
-    (cd "$PROFILE_DIR" && pnpm install --silent) || true
+if [ -f "$BOOTSTRAP_CLI" ]; then
+    node "$BOOTSTRAP_CLI" >/dev/null 2>&1 || true
 fi
 
-# Support direct foreground execution if requested via argument
-if [ "${1:-}" = "--daemon" ] || [ "${1:-}" = "--foreground" ]; then
-    # 4. Critical requirement: pass --expose-internals directly to node
-    exec node --expose-internals "$DSH_ENTRY" --profile default --no-open
-fi
-
-# Normalize and forward arguments including --import-preset
+# Default profile target: --profile default
+# Default profile seeding: profiles/default"
+# Normalize and forward arguments including --profile and --import-preset
+USER_PROFILE=""
 ELECTRON_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
+        --profile=*)
+            USER_PROFILE="${1#*=}"
+            ELECTRON_ARGS+=("$1")
+            shift
+            ;;
+        --profile)
+            if [ $# -ge 2 ]; then
+                USER_PROFILE="$2"
+                ELECTRON_ARGS+=("--profile=$2")
+                shift 2
+            else
+                shift
+            fi
+            ;;
         --import-preset=*)
             ELECTRON_ARGS+=("$1")
             shift
@@ -126,6 +122,13 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Support direct foreground execution if requested via argument
+if [ "${1:-}" = "--daemon" ] || [ "${1:-}" = "--foreground" ]; then
+    DAEMON_PROFILE="${USER_PROFILE:-default}"
+    # 4. Critical requirement: pass --expose-internals directly to node
+    exec node --expose-internals "$DSH_ENTRY" --profile "$DAEMON_PROFILE" --no-open
+fi
+
 # 3. Start systemd user service dsh-desktop.service if not active, or fallback to spawning daemon
 SERVICE_NAME="dsh-desktop.service"
 DAEMON_STARTED_BY_SYSTEMD=0
@@ -142,13 +145,18 @@ if [ "$DAEMON_STARTED_BY_SYSTEMD" -eq 0 ]; then
     if [ -z "$EXISTING_PID" ]; then
         for candidate in '/usr/bin/dsh-desktop-daemon' '/usr/lib/dsh-desktop/bin/dsh-desktop-daemon'; do
             if [ -x "$candidate" ]; then
-                nohup "$candidate" >> "$LOG_FILE" 2>&1 &
+                DAEMON_OPTS=()
+                if [ -n "$USER_PROFILE" ]; then
+                    DAEMON_OPTS+=("--profile" "$USER_PROFILE")
+                fi
+                nohup "$candidate" "${DAEMON_OPTS[@]}" >> "$LOG_FILE" 2>&1 &
                 break
             fi
         done
     else
+        DAEMON_PROFILE="${USER_PROFILE:-default}"
         # 4. Critical requirement: pass --expose-internals directly to node
-        nohup node --expose-internals "$DSH_ENTRY" --profile default --no-open >> "$LOG_FILE" 2>&1 &
+        nohup node --expose-internals "$DSH_ENTRY" --profile "$DAEMON_PROFILE" --no-open >> "$LOG_FILE" 2>&1 &
     fi
 fi
 

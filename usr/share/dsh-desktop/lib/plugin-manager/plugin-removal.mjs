@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
+import { PROFILE_NAME_PATTERN } from './paths.mjs'
+
 export const REMOVAL_PROTOCOL = 2
 const CORE_BUNDLES = new Set(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
 const BLOCKING_STATUSES = new Set(['disabled', 'cleanup-pending'])
@@ -11,8 +13,11 @@ export function isProtectedPlugin(pluginName) {
     (pluginName.startsWith('@deepseek-ai/') || pluginName === 'dshmarket' || CORE_BUNDLES.has(pluginName))
 }
 
-export function ledgerPath(home) {
-  return join(home, 'recovery', 'plugin-removals.json')
+export function ledgerPath(home, profile) {
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+  return join(home, 'recovery', 'plugin-removals', `${profile}.json`)
 }
 
 export function removalBackupRoot(home) {
@@ -43,16 +48,19 @@ async function writeJsonAtomic(path, value) {
   }
 }
 
-export async function readLedger(home) {
-  const ledger = await readJson(ledgerPath(home), { protocol: REMOVAL_PROTOCOL, removals: {} })
+export async function readLedger(home, profile) {
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+  const ledger = await readJson(ledgerPath(home, profile), { protocol: REMOVAL_PROTOCOL, removals: {} })
   if (typeof ledger !== 'object' || ledger === null || typeof ledger.removals !== 'object' || ledger.removals === null) {
     return { protocol: REMOVAL_PROTOCOL, removals: {} }
   }
   return ledger
 }
 
-async function writeLedger(home, ledger) {
-  await writeJsonAtomic(ledgerPath(home), ledger)
+async function writeLedger(home, profile, ledger) {
+  await writeJsonAtomic(ledgerPath(home, profile), ledger)
 }
 
 export function listPendingPluginRemovals(ledger) {
@@ -68,11 +76,14 @@ export function shouldDeferProfileMaintenance(ledger) {
   )
 }
 
-export async function beginRemoval({ dshHome, pluginName, now = new Date() }) {
+export async function beginRemoval({ dshHome, profile, pluginName, now = new Date() }) {
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
   if (isProtectedPlugin(pluginName)) {
     throw new Error(`Refusing to remove core package ${pluginName}`)
   }
-  const ledger = await readLedger(dshHome)
+  const ledger = await readLedger(dshHome, profile)
   const existing = Object.values(ledger.removals).find(
     (entry) => entry.pluginName === pluginName && entry.status !== 'removed'
   )
@@ -90,42 +101,45 @@ export async function beginRemoval({ dshHome, pluginName, now = new Date() }) {
     failures: []
   }
   ledger.removals[removalId] = entry
-  await writeLedger(dshHome, ledger)
+  await writeLedger(dshHome, profile, ledger)
   return entry
 }
 
-async function updateEntry(home, removalId, mutate) {
-  const ledger = await readLedger(home)
+async function updateEntry(home, profile, removalId, mutate) {
+  const ledger = await readLedger(home, profile)
   const entry = ledger.removals[removalId]
   if (entry === undefined) return undefined
   mutate(entry)
   entry.updatedAt = new Date().toISOString()
-  await writeLedger(home, ledger)
+  await writeLedger(home, profile, ledger)
   return entry
 }
 
-export async function markFailure(home, removalId, message, status = 'cleanup-pending') {
-  return updateEntry(home, removalId, (entry) => {
+export async function markFailure(home, profile, removalId, message, status = 'cleanup-pending') {
+  return updateEntry(home, profile, removalId, (entry) => {
     entry.status = status
     entry.failures = [...(entry.failures ?? []), message]
   })
 }
 
 export async function removePluginSafely(options) {
-  const { dshHome, pluginName, now, operations } = options
-  const entry = await beginRemoval({ dshHome, pluginName, now })
+  const { dshHome, profile, pluginName, now, operations } = options
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+  const entry = await beginRemoval({ dshHome, profile, pluginName, now })
   const removalId = entry.removalId
   const failures = []
 
   try {
     if (entry.backedUpAt === undefined) {
       await operations.backup({ entry, removalId })
-      await updateEntry(dshHome, removalId, (value) => { value.backedUpAt = new Date().toISOString() })
+      await updateEntry(dshHome, profile, removalId, (value) => { value.backedUpAt = new Date().toISOString() })
     }
   } catch (error) {
     const detail = `backup failed: ${errorText(error)}`
     failures.push(detail)
-    await markFailure(dshHome, removalId, detail, 'disabled')
+    await markFailure(dshHome, profile, removalId, detail, 'disabled')
     return { pluginName, removalId, disabled: false, removed: false, pending: true, failures }
   }
 
@@ -134,7 +148,7 @@ export async function removePluginSafely(options) {
   } catch (error) {
     const detail = `disable failed: ${errorText(error)}`
     failures.push(detail)
-    await markFailure(dshHome, removalId, detail, 'disabled')
+    await markFailure(dshHome, profile, removalId, detail, 'disabled')
     return { pluginName, removalId, disabled: false, removed: false, pending: true, failures }
   }
 
@@ -143,11 +157,11 @@ export async function removePluginSafely(options) {
   } catch (error) {
     const detail = `cleanup failed: ${errorText(error)}`
     failures.push(detail)
-    await markFailure(dshHome, removalId, detail, 'cleanup-pending')
+    await markFailure(dshHome, profile, removalId, detail, 'cleanup-pending')
     return { pluginName, removalId, disabled: true, removed: false, pending: true, failures }
   }
 
-  await updateEntry(dshHome, removalId, (value) => {
+  await updateEntry(dshHome, profile, removalId, (value) => {
     value.status = 'removed'
     value.failures = []
   })
@@ -174,13 +188,17 @@ export function uniqueOrphans(targetClosure, otherClosures) {
 export async function enforcePendingPluginRemovals(options) {
   const {
     dshHome,
+    profile,
     disableGeneration,
     removeProjected,
     readBundles,
     removeFromBundles,
     strict = false
   } = options
-  const ledger = await readLedger(dshHome)
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+  const ledger = await readLedger(dshHome, profile)
   const blocking = Object.values(ledger.removals).filter((entry) => BLOCKING_STATUSES.has(entry.status))
   if (blocking.length === 0) return []
 
@@ -212,8 +230,11 @@ export async function enforcePendingPluginRemovals(options) {
  * must never call this.
  */
 export async function confirmPluginRemovalsBooted(options) {
-  const { dshHome, now = new Date(), removeBackup = (dir) => rm(dir, { recursive: true, force: true }) } = options
-  const ledger = await readLedger(dshHome)
+  const { dshHome, profile, now = new Date(), removeBackup = (dir) => rm(dir, { recursive: true, force: true }) } = options
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+  const ledger = await readLedger(dshHome, profile)
   const advanced = []
   for (const entry of Object.values(ledger.removals)) {
     if (entry.status !== 'removed') continue
@@ -232,22 +253,25 @@ export async function confirmPluginRemovalsBooted(options) {
       }
     }
   }
-  await writeLedger(dshHome, ledger)
+  await writeLedger(dshHome, profile, ledger)
   return advanced
 }
 
 export async function cleanupVerifiedRemovalBackup(options) {
-  const { dshHome, removalId, now = new Date(), removeBackup = (dir) => rm(dir, { recursive: true, force: true }) } = options
-  const entry = await updateEntry(dshHome, removalId, () => {})
+  const { dshHome, profile, removalId, now = new Date(), removeBackup = (dir) => rm(dir, { recursive: true, force: true }) } = options
+  if (typeof profile !== 'string' || !PROFILE_NAME_PATTERN.test(profile)) {
+    throw new TypeError('profile is required')
+  }
+  const entry = await updateEntry(dshHome, profile, removalId, () => {})
   if (entry === undefined) return { ok: false, reason: 'unknown removal' }
   if (entry.status !== 'removed') return { ok: false, reason: 'removal is not complete' }
   if (entry.bootVerifiedAt === undefined) return { ok: false, reason: 'removal is not boot verified' }
   try {
     await removeBackup(entry.backupDirectory)
   } catch (error) {
-    await markFailure(dshHome, removalId, `backup cleanup failed: ${errorText(error)}`)
+    await markFailure(dshHome, profile, removalId, `backup cleanup failed: ${errorText(error)}`)
     return { ok: false, reason: errorText(error) }
   }
-  await updateEntry(dshHome, removalId, (value) => { value.backupDeletedAt = now.toISOString() })
+  await updateEntry(dshHome, profile, removalId, (value) => { value.backupDeletedAt = now.toISOString() })
   return { ok: true }
 }

@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Select DSH Profile</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      overflow: hidden;
+      font-size: 13px;
+    }
+    header {
+      padding: 14px 18px;
+      background: #1e293b;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 16px; font-weight: 600; color: #f8fafc; }
+    .main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    .panel {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .left-panel {
+      flex: 1.2;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      overflow-y: auto;
+    }
+    .right-panel {
+      flex: 1.1;
+      background: #131d31;
+      overflow-y: auto;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+    }
+    #profile-list, #snapshot-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 80px;
+    }
+    .profile-item, .snapshot-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      cursor: pointer;
+      border: 1px solid transparent;
+      gap: 8px;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .profile-item:hover, .snapshot-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .profile-item.selected, .snapshot-item.selected {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: #38bdf8;
+    }
+    .color-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .profile-info {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 0;
+    }
+    .display-name {
+      font-weight: 500;
+      color: #f1f5f9;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .internal-name {
+      font-size: 11px;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #0284c7;
+      color: #fff;
+      font-weight: 600;
+      margin-left: auto;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .form-group label {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+    input, select {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 7px 10px;
+      color: #f8fafc;
+      font-size: 12px;
+      outline: none;
+    }
+    input:focus, select:focus {
+      border-color: #38bdf8;
+    }
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      background: #334155;
+      color: #f8fafc;
+      transition: background 0.15s ease;
+    }
+    button:hover {
+      background: #475569;
+    }
+    button.primary {
+      background: #0284c7;
+    }
+    button.primary:hover {
+      background: #0369a1;
+    }
+    button.danger {
+      background: #b91c1c;
+    }
+    button.danger:hover {
+      background: #991b1b;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    footer {
+      padding: 12px 18px;
+      background: #1e293b;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #status-msg {
+      font-size: 12px;
+      color: #94a3b8;
+      max-width: 380px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>DSH Profile Selector</h1>
+    <button id="btn-cancel">Close</button>
+  </header>
+
+  <div class="main-container">
+    <div class="panel left-panel">
+      <div class="section-title">Profiles</div>
+      <div id="profile-list"></div>
+
+      <div class="section-title" style="margin-top: 10px;">Snapshots</div>
+      <div id="snapshot-list"></div>
+      <div class="btn-row">
+        <button id="btn-snapshot-create">Create Snapshot</button>
+        <button id="btn-restore">Restore Snapshot</button>
+      </div>
+    </div>
+
+    <div class="panel right-panel">
+      <div class="section-title">Profile Configuration</div>
+      <div class="form-group">
+        <label for="name-input">Internal Name (id)</label>
+        <input id="name-input" placeholder="e.g. dev, work" />
+      </div>
+      <div class="form-group">
+        <label for="display-input">Display Name</label>
+        <input id="display-input" placeholder="e.g. Development Profile" />
+      </div>
+      <div class="form-group">
+        <label for="color-input">Badge Color</label>
+        <select id="color-input"></select>
+      </div>
+      <div class="btn-row">
+        <button id="btn-create" class="primary">Create Profile</button>
+        <button id="btn-rename">Rename Profile</button>
+      </div>
+
+      <div class="section-title" style="margin-top: 12px;">Danger Zone</div>
+      <div class="form-group">
+        <label for="confirm-input">Type Profile Name to Confirm Action</label>
+        <input id="confirm-input" placeholder="Confirmation" />
+      </div>
+      <div class="btn-row">
+        <button id="btn-delete" class="danger">Delete Profile</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div id="status-msg"></div>
+    <div class="btn-row">
+      <button id="btn-use" class="primary">Use Profile</button>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      const PROFILE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
+
+      const profileListEl = document.getElementById('profile-list');
+      const snapshotListEl = document.getElementById('snapshot-list');
+      const btnUse = document.getElementById('btn-use');
+      const btnCreate = document.getElementById('btn-create');
+      const btnRename = document.getElementById('btn-rename');
+      const btnDelete = document.getElementById('btn-delete');
+      const btnSnapshotCreate = document.getElementById('btn-snapshot-create');
+      const btnRestore = document.getElementById('btn-restore');
+      const btnCancel = document.getElementById('btn-cancel');
+
+      const nameInput = document.getElementById('name-input');
+      const displayInput = document.getElementById('display-input');
+      const colorInput = document.getElementById('color-input');
+      const confirmInput = document.getElementById('confirm-input');
+      const statusMsg = document.getElementById('status-msg');
+
+      let profiles = [];
+      let selectedProfile = null;
+      let selectedSnapshot = null;
+
+      // Populate color dropdown
+      while (colorInput.firstChild) colorInput.removeChild(colorInput.firstChild);
+      PROFILE_COLORS.forEach(function (color) {
+        const opt = document.createElement('option');
+        opt.value = color;
+        opt.textContent = color;
+        colorInput.appendChild(opt);
+      });
+
+      function setStatus(msg, isError) {
+        statusMsg.textContent = msg || '';
+        statusMsg.style.color = isError ? '#f87171' : '#94a3b8';
+      }
+
+      function renderProfiles() {
+        while (profileListEl.firstChild) profileListEl.removeChild(profileListEl.firstChild);
+        profiles.forEach(function (p) {
+          const item = document.createElement('div');
+          item.className = 'profile-item' + (selectedProfile && selectedProfile.name === p.name ? ' selected' : '');
+
+          const dot = document.createElement('span');
+          dot.className = 'color-dot';
+          dot.style.backgroundColor = p.color || '#3b82f6';
+          item.appendChild(dot);
+
+          const info = document.createElement('div');
+          info.className = 'profile-info';
+
+          const disp = document.createElement('span');
+          disp.className = 'display-name';
+          disp.textContent = p.displayName || p.name;
+          info.appendChild(disp);
+
+          const name = document.createElement('span');
+          name.className = 'internal-name';
+          name.textContent = p.name;
+          info.appendChild(name);
+
+          item.appendChild(info);
+
+          if (p.active) {
+            const badge = document.createElement('span');
+            badge.className = 'badge';
+            badge.textContent = 'Active';
+            item.appendChild(badge);
+          }
+
+          item.addEventListener('click', function () {
+            selectProfile(p);
+          });
+
+          profileListEl.appendChild(item);
+        });
+      }
+
+      async function loadSnapshots(profileName) {
+        while (snapshotListEl.firstChild) snapshotListEl.removeChild(snapshotListEl.firstChild);
+        selectedSnapshot = null;
+        if (!window.dshProfiles?.snapshots) return;
+        try {
+          const res = await window.dshProfiles.snapshots(profileName);
+          const snaps = Array.isArray(res) ? res : (res?.snapshots || []);
+          if (snaps.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'internal-name';
+            empty.textContent = 'No snapshots available';
+            snapshotListEl.appendChild(empty);
+            return;
+          }
+          snaps.forEach(function (s) {
+            const item = document.createElement('div');
+            item.className = 'snapshot-item';
+            const text = typeof s === 'string' ? s : (s.name || s.path || JSON.stringify(s));
+            item.textContent = text;
+            item.addEventListener('click', function () {
+              const all = snapshotListEl.querySelectorAll('.snapshot-item');
+              all.forEach(function (el) { el.classList.remove('selected'); });
+              item.classList.add('selected');
+              selectedSnapshot = typeof s === 'string' ? s : (s.path || s.name);
+            });
+            snapshotListEl.appendChild(item);
+          });
+        } catch (err) {
+          setStatus('Failed to load snapshots', true);
+        }
+      }
+
+      function selectProfile(p) {
+        selectedProfile = p;
+        nameInput.value = p.name;
+        displayInput.value = p.displayName || p.name;
+        colorInput.value = p.color || PROFILE_COLORS[0];
+        confirmInput.value = '';
+        renderProfiles();
+        loadSnapshots(p.name);
+      }
+
+      async function refresh() {
+        if (!window.dshProfiles?.list) return;
+        try {
+          const list = await window.dshProfiles.list();
+          profiles = Array.isArray(list) ? list : (list?.profiles || []);
+          if (!selectedProfile && profiles.length > 0) {
+            const active = profiles.find(function (p) { return p.active; });
+            selectedProfile = active || profiles[0];
+            selectProfile(selectedProfile);
+          } else {
+            renderProfiles();
+          }
+        } catch (err) {
+          setStatus('Failed to list profiles', true);
+        }
+      }
+
+      btnUse.addEventListener('click', async function () {
+        if (!selectedProfile) return;
+        try {
+          if (window.dshProfiles?.pickerResolve) {
+            await window.dshProfiles.pickerResolve(selectedProfile.name);
+          } else if (window.dshProfiles?.setActive) {
+            await window.dshProfiles.setActive(selectedProfile.name);
+          }
+        } catch (err) {
+          setStatus(err.message || 'Failed to switch profile', true);
+        }
+      });
+
+      btnCreate.addEventListener('click', async function () {
+        const name = (nameInput.value || '').trim();
+        const displayName = (displayInput.value || '').trim();
+        const color = colorInput.value;
+        if (!name) {
+          setStatus('Name is required', true);
+          return;
+        }
+        try {
+          await window.dshProfiles.create({ name: name, displayName: displayName, color: color });
+          setStatus('Profile created');
+          await refresh();
+          const created = profiles.find(function (p) { return p.name === name; });
+          if (created) selectProfile(created);
+        } catch (err) {
+          setStatus(err.message || 'Failed to create profile', true);
+        }
+      });
+
+      btnRename.addEventListener('click', async function () {
+        if (!selectedProfile) return;
+        const displayName = (displayInput.value || '').trim();
+        const color = colorInput.value;
+        try {
+          await window.dshProfiles.rename({ name: selectedProfile.name, displayName: displayName, color: color });
+          setStatus('Profile updated');
+          await refresh();
+        } catch (err) {
+          setStatus(err.message || 'Failed to rename profile', true);
+        }
+      });
+
+      btnDelete.addEventListener('click', async function () {
+        if (!selectedProfile) return;
+        if (confirmInput.value !== selectedProfile.name) {
+          setStatus('Type exact profile name in confirm box to delete', true);
+          return;
+        }
+        try {
+          await window.dshProfiles.delete(selectedProfile.name);
+          setStatus('Profile deleted');
+          selectedProfile = null;
+          await refresh();
+        } catch (err) {
+          setStatus(err.message || 'Failed to delete profile', true);
+        }
+      });
+
+      btnSnapshotCreate.addEventListener('click', async function () {
+        if (!selectedProfile) return;
+        try {
+          if (window.dshProfiles?.snapshots) {
+            // IPC can handle snapshot creation or snapshot command
+            setStatus('Creating snapshot…');
+            await window.dshProfiles.snapshots(selectedProfile.name);
+            setStatus('Snapshot created');
+            await loadSnapshots(selectedProfile.name);
+          }
+        } catch (err) {
+          setStatus(err.message || 'Failed to create snapshot', true);
+        }
+      });
+
+      btnRestore.addEventListener('click', async function () {
+        if (!selectedProfile || !selectedSnapshot) {
+          setStatus('Select a profile and a snapshot to restore', true);
+          return;
+        }
+        if (confirmInput.value !== selectedProfile.name) {
+          setStatus('Type exact profile name in confirm box to restore', true);
+          return;
+        }
+        try {
+          setStatus('Restoring snapshot…');
+          await window.dshProfiles.restore({ profile: selectedProfile.name, snapshotPath: selectedSnapshot });
+          setStatus('Snapshot restored');
+          await refresh();
+        } catch (err) {
+          setStatus(err.message || 'Failed to restore snapshot', true);
+        }
+      });
+
+      btnCancel.addEventListener('click', function () {
+        if (window.dshProfiles?.pickerResolve && selectedProfile) {
+          window.dshProfiles.pickerResolve(selectedProfile.name);
+        }
+      });
+
+      refresh();
+    })();
+  </script>
+</body>
+</html>
