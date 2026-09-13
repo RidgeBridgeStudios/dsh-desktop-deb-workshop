@@ -1,14 +1,75 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Build Optimization Opt-outs (set to 0 to disable, default: 1):
+#   DSH_BUILD_EATMYDATA=0       - Disable eatmydata wrapper around dpkg-deb
+#   DSH_BUILD_PARALLEL_ICONS=0  - Run icon conversions sequentially
+#   DSH_BUILD_TMPFS=0           - Build in ./build instead of /dev/shm
+#   DSH_BUILD_CCACHE=0          - Disable ccache environment export
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_NAME="dsh-desktop"
 PACKAGE_VERSION="1.0.2"
 PACKAGE_ARCH="$(dpkg-architecture -qDEB_HOST_ARCH)"
 PACKAGE_FULLNAME="${PACKAGE_NAME}_${PACKAGE_VERSION}_${PACKAGE_ARCH}"
 DEB_FILE="${SCRIPT_DIR}/${PACKAGE_FULLNAME}.deb"
-BUILD_DIR="${SCRIPT_DIR}/build"
+
+# Clamp timestamps for byte-reproducible deb packaging
+if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
+    if [ -f "${SCRIPT_DIR}/debian/changelog" ] && command -v dpkg-parsechangelog >/dev/null 2>&1; then
+        SOURCE_DATE_EPOCH="$(dpkg-parsechangelog -l "${SCRIPT_DIR}/debian/changelog" -STimestamp 2>/dev/null || date +%s)"
+    elif command -v git >/dev/null 2>&1 && git -C "${SCRIPT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
+        SOURCE_DATE_EPOCH="$(git -C "${SCRIPT_DIR}" log -1 --format=%ct 2>/dev/null || date +%s)"
+    else
+        SOURCE_DATE_EPOCH="$(date +%s)"
+    fi
+    export SOURCE_DATE_EPOCH
+fi
+
+# Detect tmpfs availability in /dev/shm (require >= 2 GB free)
+USE_TMPFS=0
+if [ "${DSH_BUILD_TMPFS:-1}" != "0" ]; then
+    if [ -d /dev/shm ]; then
+        SHM_AVAIL_KB="$(df -k /dev/shm 2>/dev/null | awk 'NR==2 {print $4}')"
+        if [ -n "$SHM_AVAIL_KB" ] && [ "$SHM_AVAIL_KB" -ge 2097152 ]; then
+            USE_TMPFS=1
+        else
+            echo "Notice: /dev/shm has less than 2 GB available. Skipping tmpfs build dir."
+        fi
+    else
+        echo "Notice: /dev/shm not found. Skipping tmpfs build dir."
+    fi
+fi
+
+if [ "$USE_TMPFS" -eq 1 ]; then
+    BUILD_DIR="/dev/shm/dsh-build-$$"
+else
+    BUILD_DIR="${SCRIPT_DIR}/build"
+fi
+TMPFS_DEB_FILE="${BUILD_DIR}/${PACKAGE_FULLNAME}.deb"
 STAGING_DIR="${BUILD_DIR}/${PACKAGE_FULLNAME}"
+
+cleanup() {
+    local exit_code=$?
+    if [ "$USE_TMPFS" -eq 1 ] && [ -d "$BUILD_DIR" ]; then
+        if [ -f "$TMPFS_DEB_FILE" ]; then
+            rsync -a "$TMPFS_DEB_FILE" "$DEB_FILE" 2>/dev/null || cp -f "$TMPFS_DEB_FILE" "$DEB_FILE" 2>/dev/null || true
+        fi
+        rm -rf "$BUILD_DIR"
+    fi
+    exit "$exit_code"
+}
+trap cleanup EXIT INT TERM
+
+# Configure ccache wrapper if available
+if [ "${DSH_BUILD_CCACHE:-1}" != "0" ]; then
+    if command -v ccache >/dev/null 2>&1 && command -v gcc >/dev/null 2>&1; then
+        export CC="ccache gcc"
+        export CXX="ccache g++"
+    else
+        echo "Notice: ccache or gcc not found. Skipping ccache configuration."
+    fi
+fi
 
 echo "=== Building Debian Package: ${PACKAGE_FULLNAME} ==="
 
@@ -54,9 +115,19 @@ if [ ! -f "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" ]; then
 fi
 mkdir -p "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps"
 mkdir -p "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps"
-convert -background none -resize 128x128 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps/dsh-desktop.png"
-convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/dsh-desktop/tray-icon.png"
-convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps/dsh-desktop.png"
+if [ "${DSH_BUILD_PARALLEL_ICONS:-1}" != "0" ]; then
+    convert -background none -resize 128x128 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps/dsh-desktop.png" &
+    PID1=$!
+    convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/dsh-desktop/tray-icon.png" &
+    PID2=$!
+    convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps/dsh-desktop.png" &
+    PID3=$!
+    wait "$PID1" && wait "$PID2" && wait "$PID3"
+else
+    convert -background none -resize 128x128 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/128x128/apps/dsh-desktop.png"
+    convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/dsh-desktop/tray-icon.png"
+    convert -background none -resize 24x24 "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" "${SCRIPT_DIR}/usr/share/icons/hicolor/24x24/apps/dsh-desktop.png"
+fi
 
 for icon in \
     "${SCRIPT_DIR}/usr/share/dsh-desktop/logo.svg" \
@@ -160,10 +231,28 @@ chmod 0755 "${STAGING_DIR}/usr/lib/dsh-desktop/bin/dsh-desktop-upgrade-helper"
 
 # 4. Build the Debian package
 echo "[4/6] Building Debian archive..."
+DPKG_DEB_CMD=()
+if [ "${DSH_BUILD_EATMYDATA:-1}" != "0" ]; then
+    if command -v eatmydata >/dev/null 2>&1; then
+        DPKG_DEB_CMD=(eatmydata)
+    else
+        echo "Notice: eatmydata not found. Building without eatmydata wrapper."
+    fi
+fi
+
+ARCHIVE_TARGET="$DEB_FILE"
+if [ "$USE_TMPFS" -eq 1 ]; then
+    ARCHIVE_TARGET="$TMPFS_DEB_FILE"
+fi
+
 if [ "$HAS_FAKEROOT" -eq 1 ]; then
-    fakeroot dpkg-deb --build "$STAGING_DIR" "$DEB_FILE"
+    "${DPKG_DEB_CMD[@]}" fakeroot dpkg-deb --build "$STAGING_DIR" "$ARCHIVE_TARGET"
 else
-    dpkg-deb --root-owner-group --build "$STAGING_DIR" "$DEB_FILE"
+    "${DPKG_DEB_CMD[@]}" dpkg-deb --root-owner-group --build "$STAGING_DIR" "$ARCHIVE_TARGET"
+fi
+
+if [ "$USE_TMPFS" -eq 1 ]; then
+    rsync -a "$TMPFS_DEB_FILE" "$DEB_FILE"
 fi
 
 # 5. Run lintian if available
