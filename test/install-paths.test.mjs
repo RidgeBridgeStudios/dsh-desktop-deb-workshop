@@ -17,18 +17,18 @@ test('install paths: debian/postinst creates symlinks for binaries and postrm cl
 
   assert.match(
     postinstContent,
-    /ln -sf \/usr\/lib\/dsh-desktop\/bin\/dsh-desktop \/usr\/bin\/dsh-desktop/,
-    'postinst must create symlink for dsh-desktop'
+    /for bin in dsh-desktop dsh-desktop-daemon dsh-desktop-upgrade-helper/,
+    'postinst must loop over binaries'
   )
   assert.match(
     postinstContent,
-    /ln -sf \/usr\/lib\/dsh-desktop\/bin\/dsh-desktop-daemon \/usr\/bin\/dsh-desktop-daemon/,
-    'postinst must create symlink for dsh-desktop-daemon'
+    /is missing from the package/,
+    'postinst must assert missing package binary'
   )
   assert.match(
     postinstContent,
-    /ln -sf \/usr\/lib\/dsh-desktop\/bin\/dsh-desktop-upgrade-helper \/usr\/bin\/dsh-desktop-upgrade-helper/,
-    'postinst must create symlink for dsh-desktop-upgrade-helper'
+    /ln -sf "\$src" "\/usr\/bin\/\$bin"/,
+    'postinst must create symlinks in /usr/bin'
   )
 
   assert.match(
@@ -68,6 +68,11 @@ test('install paths: debian/postrm has distinct remove) and purge) arms with app
 
   assert.doesNotMatch(removeArmMatch[1], /apparmor_parser -R/, 'remove arm must not unload AppArmor')
   assert.match(purgeArmMatch[1], /apparmor_parser -R/, 'purge arm must unload AppArmor')
+
+  const definitions = postrmContent.match(/remove_shared\s*\(\)\s*\{/g) || []
+  assert.equal(definitions.length, 1, 'postrm must define remove_shared() exactly once')
+  assert.match(removeArmMatch[1], /\bremove_shared\b/, 'remove arm must call remove_shared')
+  assert.match(purgeArmMatch[1], /\bremove_shared\b/, 'purge arm must call remove_shared')
 })
 
 test('install paths: postinst uses runuser and conditional linger, build.sh references enabled unattended-upgrades', () => {

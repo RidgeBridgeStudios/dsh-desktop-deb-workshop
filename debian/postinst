@@ -97,9 +97,14 @@ EOF
         fi
 
         # 7. Symlink binaries into /usr/bin
-        ln -sf /usr/lib/dsh-desktop/bin/dsh-desktop /usr/bin/dsh-desktop
-        ln -sf /usr/lib/dsh-desktop/bin/dsh-desktop-daemon /usr/bin/dsh-desktop-daemon
-        ln -sf /usr/lib/dsh-desktop/bin/dsh-desktop-upgrade-helper /usr/bin/dsh-desktop-upgrade-helper
+        for bin in dsh-desktop dsh-desktop-daemon dsh-desktop-upgrade-helper; do
+            src="/usr/lib/dsh-desktop/bin/$bin"
+            if [ ! -f "$src" ]; then
+                echo "dsh-desktop: error: $src is missing from the package." >&2
+                exit 1
+            fi
+            ln -sf "$src" "/usr/bin/$bin"
+        done
         ;;
 esac
 
