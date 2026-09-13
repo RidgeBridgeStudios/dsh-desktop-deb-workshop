@@ -5,9 +5,13 @@ import {
   SUPPORTED_DSH_RANGE,
   SUPPORTED_DSH_VERSION,
   assertSupportedDsh,
-  isSupportedDsh
+  isSupportedDsh,
+  resolveRunningDshVersion
 } from '../usr/share/dsh-desktop/lib/plugin-manager/dsh-version.mjs'
 import { createMarketService } from '../usr/share/dsh-desktop/packages/dsh-desktop-market-installer/index.js'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 test('dsh-version exports expected range and pinned version', () => {
   assert.equal(SUPPORTED_DSH_RANGE, '~0.1.5-0')
@@ -84,4 +88,30 @@ test('market installer allows installation when DSH version is supported', async
 
   const outcome = await service.install()
   assert.equal(outcome.kind, 'started')
+})
+
+test('market installer refuses installation when DSH version cannot be resolved', async () => {
+  let installCalled = false
+  const service = createMarketService({
+    home: '/tmp/nonexistent-home-12345',
+    resolveDshVersion: () => null,
+    readState: async () => ({ dependency: undefined, installedVersion: undefined }),
+    installShared: async () => {
+      installCalled = true
+    }
+  })
+
+  const outcome = await service.install()
+  assert.equal(outcome.kind, 'error')
+  assert.equal(installCalled, false)
+  assert.match(outcome.detail, /Could not resolve the running DSH version; refusing to install\./)
+})
+
+test('resolveRunningDshVersion does not consult <home>/package.json', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-version-test-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+
+  await writeFile(join(dir, 'package.json'), JSON.stringify({ version: '9.9.9' }))
+  const version = resolveRunningDshVersion({ home: dir })
+  assert.notEqual(version, '9.9.9')
 })

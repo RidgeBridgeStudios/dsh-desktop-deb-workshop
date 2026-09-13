@@ -146,13 +146,15 @@ export function createMarketService(options = {}) {
   async function install() {
     if (operation !== null) return { kind: 'busy' }
     const currentVersion = resolveDshVersion()
-    if (currentVersion !== null && currentVersion !== undefined) {
-      try {
-        assertSupportedDsh(currentVersion)
-      } catch (failure) {
-        error = failure instanceof Error ? failure.message : String(failure)
-        return { kind: 'error', detail: error }
-      }
+    if (currentVersion === null || currentVersion === undefined) {
+      error = 'Could not resolve the running DSH version; refusing to install.'
+      return { kind: 'error', detail: error }
+    }
+    try {
+      assertSupportedDsh(currentVersion)
+    } catch (failure) {
+      error = failure instanceof Error ? failure.message : String(failure)
+      return { kind: 'error', detail: error }
     }
     let state
     try {

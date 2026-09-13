@@ -31,7 +31,6 @@ export function resolveRunningDshVersion(options = {}) {
   const candidates = [
     join(installationClosureDir(home), '@deepseek-ai/dsh/package.json'),
     join(home, 'node_modules/@deepseek-ai/dsh/package.json'),
-    join(home, 'package.json'),
     '/usr/local/lib/node_modules/@deepseek-ai/dsh/package.json',
     '/usr/lib/node_modules/@deepseek-ai/dsh/package.json'
   ]
