@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# WARNING: This script is intended to be run via curl | bash.
+# Always inspect third-party scripts before executing them with elevated privileges.
 set -euo pipefail
 
 REPO="RidgeBridgeStudios/dsh-desktop-deb-workshop"
@@ -61,14 +63,16 @@ fi
 SUPPORTED_DSH_VERSION="0.1.5-rc.1"
 echo "[3/6] Installing pnpm, electron, and @deepseek-ai/dsh@${SUPPORTED_DSH_VERSION} globally..."
 sudo npm install -g pnpm electron "@deepseek-ai/dsh@${SUPPORTED_DSH_VERSION}"
-if command -v install-electron >/dev/null 2>&1; then
-    echo "Downloading Electron runtime binary..."
-    sudo install-electron || true
-fi
 
-# 4. Install prebuilt sharp and @img/sharp-linux-x64 globally
+# 4. Install prebuilt sharp and native platform binaries globally
 echo "[4/6] Installing prebuilt native sharp binaries..."
-sudo npm install -g --os=linux --cpu=x64 sharp @img/sharp-linux-x64
+ARCH="$(dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null || echo amd64)"
+case "$ARCH" in
+  amd64) SHARP_PKG="@img/sharp-linux-x64" ;;
+  arm64) SHARP_PKG="@img/sharp-linux-arm64" ;;
+  *) echo "Unsupported arch $ARCH for sharp" >&2; exit 1 ;;
+esac
+sudo npm install -g --os=linux --cpu="$([ "$ARCH" = amd64 ] && echo x64 || echo arm64)" sharp "$SHARP_PKG"
 
 # 5. Download the latest dsh-desktop .deb package
 echo "[5/6] Fetching dsh-desktop Debian package..."
