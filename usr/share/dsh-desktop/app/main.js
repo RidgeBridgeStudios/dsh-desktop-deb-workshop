@@ -1327,15 +1327,7 @@ export function buildAppMenuTemplate(options = {}) {
     {
       label: t('menuHelp'),
       submenu: helpSubmenu
-    },
-    ...(hasUpdate ? [
-      {
-        label: updateLabel,
-        click: async () => {
-          await upgradeHelper(options);
-        }
-      }
-    ] : [])
+    }
   ];
 }
 

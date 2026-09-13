@@ -218,18 +218,28 @@ test('menu: shows update item when available and triggers pkexec upgrade helper'
     runUpgradeHelper: mockUpgradeHelper
   });
 
-  // Top-level update menu item
-  const topItem = appMenuWithUpdate.find((item) => item.label === 'Update available: v1.5.0');
-  assert.ok(topItem, 'Top-level app menu should contain update item');
-  await topItem.click();
-  assert.equal(helperRan, true);
+  // Assert at most one item starts with 'Update available:' across entire menu structure
+  function collectUpdateItems(items) {
+    const found = [];
+    for (const item of items) {
+      if (typeof item.label === 'string' && item.label.startsWith('Update available:')) {
+        found.push(item);
+      }
+      if (Array.isArray(item.submenu)) {
+        found.push(...collectUpdateItems(item.submenu));
+      }
+    }
+    return found;
+  }
+  const updateItems = collectUpdateItems(appMenuWithUpdate);
+  assert.equal(updateItems.length, 1, 'App menu should contain AT MOST ONE item starting with Update available:');
 
-  // Help menu submenu item
-  helperRan = false;
+  // Assert the item lives inside the Help submenu
   const helpMenu = appMenuWithUpdate.find((item) => item.label === 'Help' || item.label === '帮助');
-  assert.ok(helpMenu);
-  const helpItem = helpMenu.submenu.find((item) => item.label === 'Update available: v1.5.0');
-  assert.ok(helpItem);
+  assert.ok(helpMenu, 'Help menu must exist');
+  const helpItem = helpMenu.submenu.find((item) => item.label?.startsWith('Update available:'));
+  assert.ok(helpItem, 'Update item must live inside Help submenu');
+  assert.equal(helpItem.label, 'Update available: v1.5.0');
   await helpItem.click();
   assert.equal(helperRan, true);
 

@@ -82,3 +82,19 @@ test('install paths: postinst uses runuser and conditional linger, build.sh refe
   assert.match(postinstContent, /\/etc\/dsh-desktop\/linger-enabled/, 'postinst must check linger-enabled')
   assert.match(buildShContent, /etc\/apt\/apt\.conf\.d\/51dsh-desktop-unattended-upgrades["\s]/, 'build.sh must reference non-.disabled unattended-upgrades file')
 })
+
+test('install paths: postinst uses targeted chown and avoids recursive chown on .dsh', () => {
+  const postinstPath = path.join(rootDir, 'debian/postinst')
+  const postinstContent = fs.readFileSync(postinstPath, 'utf8')
+
+  assert.doesNotMatch(
+    postinstContent,
+    /chown -R "\$USER_UID:\$USER_GID" "\$USER_HOME\/\.dsh"/,
+    'postinst must not recursively chown $USER_HOME/.dsh'
+  )
+  assert.match(
+    postinstContent,
+    /chown -R "\$USER_UID:\$USER_GID" "\$DEFAULT_PROFILE_DIR"/,
+    'postinst must recursively chown $DEFAULT_PROFILE_DIR'
+  )
+})

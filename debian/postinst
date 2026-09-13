@@ -43,7 +43,8 @@ case "$1" in
 EOF
                 chown "$USER_UID:$USER_GID" "$PACKAGE_JSON"
             fi
-            chown -R "$USER_UID:$USER_GID" "$USER_HOME/.dsh"
+            chown "$USER_UID:$USER_GID" "$USER_HOME/.dsh" 2>/dev/null || true
+            chown -R "$USER_UID:$USER_GID" "$DEFAULT_PROFILE_DIR"
             chown -R "$USER_UID:$USER_GID" "$USER_HOME/.local/share/dsh-desktop"
 
             # 3. Enable user lingering for the invoking user (opt-in only: dsh-desktop is a desktop app, not a background daemon)

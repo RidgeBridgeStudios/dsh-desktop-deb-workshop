@@ -10,7 +10,7 @@ npm ci              # Install/vendor build dependencies (pnpm, fflate)
 
 ## Test
 ```bash
-npm test            # Run full suite (185 tests via Node test runner: node --test)
+npm test            # Run full suite via Node test runner: node --test
 node --test test/<name>.test.mjs  # Run single test file
 ```
 
