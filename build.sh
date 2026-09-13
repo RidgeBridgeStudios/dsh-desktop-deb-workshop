@@ -9,7 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_NAME="dsh-desktop"
-PACKAGE_VERSION="1.1.0"
+PACKAGE_VERSION="1.1.1"
 PACKAGE_ARCH="$(dpkg-architecture -qDEB_HOST_ARCH)"
 PACKAGE_FULLNAME="${PACKAGE_NAME}_${PACKAGE_VERSION}_${PACKAGE_ARCH}"
 DEB_FILE="${SCRIPT_DIR}/${PACKAGE_FULLNAME}.deb"
@@ -164,12 +164,32 @@ if [ -f "${SCRIPT_DIR}/LICENSE" ]; then
     cp -a "${SCRIPT_DIR}/LICENSE" "${STAGING_DIR}/usr/share/doc/${PACKAGE_NAME}/copyright"
 fi
 
-# Copy usr, etc, and lib trees
+# Copy usr, etc, lib, and opt trees
 cp -r "${SCRIPT_DIR}/usr/"* "${STAGING_DIR}/usr/"
 cp -r "${SCRIPT_DIR}/etc/"* "${STAGING_DIR}/etc/"
 cp -r "${SCRIPT_DIR}/lib/"* "${STAGING_DIR}/lib/"
+if [ -d "${SCRIPT_DIR}/opt" ]; then
+    mkdir -p "${STAGING_DIR}/opt"
+    cp -r "${SCRIPT_DIR}/opt/"* "${STAGING_DIR}/opt/"
+fi
 
-# Verify MIME package and preset desktop staging
+# Verify plugin staging and validate absence of placeholder scopes
+if [ ! -f "${STAGING_DIR}/opt/dsh-desktop/plugins/dsh-nvidia-nim-fix/index.js" ]; then
+    echo "Error: opt/dsh-desktop/plugins/dsh-nvidia-nim-fix/index.js was not staged." >&2
+    exit 1
+fi
+if grep -Rq 'your-scope' "${STAGING_DIR}/opt/dsh-desktop/plugins/dsh-nvidia-nim-fix/"; then
+    echo "Error: placeholder scope found in plugin package.json" >&2
+    exit 1
+fi
+
+# Smoke test plugin module export in staged tree
+node --input-type=module -e "
+    const m = await import('${STAGING_DIR}/opt/dsh-desktop/plugins/dsh-nvidia-nim-fix/index.js');
+    if (typeof m.apply !== 'function') { console.error('apply missing'); process.exit(1); }
+    console.log('plugin smoke OK');
+"
+
 if [ ! -f "${STAGING_DIR}/usr/share/mime/packages/dsh-desktop.xml" ]; then
     echo "Error: usr/share/mime/packages/dsh-desktop.xml was not staged." >&2
     exit 1

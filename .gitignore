@@ -1,5 +1,6 @@
 # Build and staging artifacts
 build/
+*.deb
 *.log
 
 # Dev dependencies (pnpm is vendored into the package at build time)

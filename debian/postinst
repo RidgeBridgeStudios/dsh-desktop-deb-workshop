@@ -54,6 +54,51 @@ autoInstallPeers: false
 EOF
                 chown "$USER_UID:$USER_GID" "$WORKSPACE_YAML"
             fi
+            # 2b. Apply NVIDIA NIM fix patch idempotently to cordis.patch.yml
+            apply_nim_fix_patch() {
+                local target_home="$1"
+                local target_uid="$2"
+                local target_gid="$3"
+
+                [ -z "$target_home" ] && return 0
+                [ ! -d "$target_home" ] && return 0
+
+                local dsh_dir="$target_home/.dsh"
+                local profile_dir="$dsh_dir/profiles/default"
+                mkdir -p "$dsh_dir" "$profile_dir"
+
+                local patch_block="- insert:
+    - id: dsh-nvidia-nim-fix
+      name: /opt/dsh-desktop/plugins/dsh-nvidia-nim-fix/index.js"
+
+                for pfile in "$dsh_dir/cordis.patch.yml" "$profile_dir/cordis.patch.yml"; do
+                    if [ ! -f "$pfile" ] || [ ! -s "$pfile" ]; then
+                        printf "%s\n" "$patch_block" > "$pfile"
+                        chown "$target_uid:$target_gid" "$pfile" 2>/dev/null || true
+                    else
+                        # Validate that existing file begins with a valid YAML list indicator
+                        if ! head -c 1 "$pfile" | grep -qE '^(-|\[|\s*$)'; then
+                            echo "dsh-desktop: refusing to modify non-list $pfile; backed up." >&2
+                            cp "$pfile" "$pfile.bak.$(date +%s)"
+                            continue
+                        fi
+
+                        if ! grep -q "dsh-nvidia-nim-fix" "$pfile" 2>/dev/null; then
+                            # Backup before mutating existing patch file
+                            cp "$pfile" "$pfile.bak.$(date +%s)"
+                            if grep -q '^[[:space:]]*\[\][[:space:]]*$' "$pfile" 2>/dev/null; then
+                                sed -i 's/^[[:space:]]*\[\][[:space:]]*$//' "$pfile"
+                            fi
+                            printf "\n%s\n" "$patch_block" >> "$pfile"
+                            chown "$target_uid:$target_gid" "$pfile" 2>/dev/null || true
+                        fi
+                    fi
+                done
+                chown "$target_uid:$target_gid" "$dsh_dir" "$profile_dir" 2>/dev/null || true
+            }
+
+            apply_nim_fix_patch "$USER_HOME" "$USER_UID" "$USER_GID"
+
             chown "$USER_UID:$USER_GID" "$USER_HOME/.dsh" 2>/dev/null || true
             chown -R "$USER_UID:$USER_GID" "$DEFAULT_PROFILE_DIR"
             chown -R "$USER_UID:$USER_GID" "$USER_HOME/.local/share/dsh-desktop"

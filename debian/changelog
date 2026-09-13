@@ -1,3 +1,12 @@
+dsh-desktop (1.1.1) stable; urgency=medium
+
+  * Add @dsh-desktop/dsh-nvidia-nim-fix plugin to resolve NVIDIA NIM DeepSeek-v4 streaming hang.
+  * Inject chat_template_kwargs and strip conflicting thinking disabled field on NIM endpoints.
+  * Remap developer role messages to system role for NIM API compatibility.
+  * Automatically register plugin in user and profile cordis.patch.yml during postinst.
+
+ -- RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>  Sun, 13 Sep 2026 21:15:00 +0200
+
 dsh-desktop (1.1.0) stable; urgency=medium
 
   * Per-profile isolation with ~/.dsh/profiles/<name>/ directory layout.

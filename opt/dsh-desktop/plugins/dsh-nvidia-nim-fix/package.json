@@ -1,0 +1,23 @@
+{
+  "name": "@dsh-desktop/dsh-nvidia-nim-fix",
+  "version": "1.0.0",
+  "description": "DSH plugin to fix NVIDIA NIM DeepSeek-v4 streaming hang and developer role mapping",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "nvidia-nim",
+    "deepseek-v4"
+  ],
+  "license": "MIT"
+}
