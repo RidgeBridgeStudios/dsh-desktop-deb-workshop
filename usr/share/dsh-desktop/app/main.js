@@ -139,10 +139,11 @@ export function assertTrustedSender(event) {
 export function resolveDaemonBin() {
   const daemonCandidates = [
     '/usr/bin/dsh-desktop-daemon',
+    '/usr/lib/dsh-desktop/bin/dsh-desktop-daemon',
     path.resolve(__dirname, '../../../lib/dsh-desktop/bin/dsh-desktop-daemon'),
     path.resolve(__dirname, '../../lib/dsh-desktop/bin/dsh-desktop-daemon')
   ];
-  return daemonCandidates.find((p) => fs.existsSync(p)) || daemonCandidates[0];
+  return daemonCandidates.find((p) => fs.existsSync(p)) ?? null;
 }
 
 if (app) {
@@ -296,6 +297,7 @@ export async function checkDshStatus() {
   }
 
   const daemonBin = resolveDaemonBin();
+  if (daemonBin === null) return { active: false, detail: 'offline' };
   const pgrepRes = await executeCommand('pgrep', ['-f', daemonBin]);
   if (pgrepRes.stdout.length > 0) {
     dshStatus = { active: true, detail: 'daemon process active' };
@@ -322,7 +324,7 @@ export async function stopDshBackend(options = {}) {
 
   if (isSystemdUnavailable) {
     const daemonBin = resolveDaemonBin();
-    if (daemonBin) {
+    if (daemonBin !== null) {
       await execCmd('pkill', ['-f', daemonBin]);
     }
   }
@@ -341,6 +343,7 @@ export async function restartDshBackend(options = {}) {
   await new Promise((resolve) => setTimeout(resolve, 600));
 
   const daemonBin = resolveDaemonBin();
+  if (daemonBin === null) return false;
 
   if (daemonBin) {
     const isSafeMode = options.safeMode ?? shouldStartInSafeMode(process.argv);
