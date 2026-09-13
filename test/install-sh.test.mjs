@@ -17,3 +17,23 @@ test("install.sh: removes dead install-electron, detects architecture for sharp"
   assert.match(installShContent, /@img\/sharp-linux-x64/, "install.sh must reference sharp x64 package")
   assert.match(installShContent, /@img\/sharp-linux-arm64/, "install.sh must reference sharp arm64 package")
 })
+
+test("install.sh: dynamic deb architecture, SHA verification in both branches, dpkg-architecture check", () => {
+  const installShPath = path.join(rootDir, "install.sh")
+  const installShContent = fs.readFileSync(installShPath, "utf8")
+
+  assert.match(installShContent, /DEB_ARCH=/)
+  assert.match(installShContent, /dpkg-architecture -qDEB_HOST_ARCH/)
+
+  const linesWithoutComments = installShContent
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("#"))
+    .join("\n")
+  assert.doesNotMatch(linesWithoutComments, /amd64\.deb/)
+
+  const verifyShaMatches = installShContent.match(/verify_sha\b/g) || []
+  assert.ok(verifyShaMatches.length >= 3, "verify_sha should be defined and called in both branches")
+
+  assert.match(installShContent, /dpkg-architecture is required\. Install with: sudo apt install -y dpkg-dev/)
+})
+

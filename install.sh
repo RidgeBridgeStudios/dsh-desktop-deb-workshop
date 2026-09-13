@@ -5,7 +5,6 @@ set -euo pipefail
 
 REPO="RidgeBridgeStudios/dsh-desktop-deb-workshop"
 VERSION="1.0.0"
-DEB_NAME="dsh-desktop_${VERSION}_amd64.deb"
 
 echo "======================================================"
 echo "    DeepSeek Harness Desktop (dsh-desktop) Installer  "
@@ -28,6 +27,9 @@ if [[ "$OS_ID" != "ubuntu" && "$OS_ID" != "zorin" && "$OS_LIKE" != *"ubuntu"* ]]
 else
     echo "Detected supported OS: ${PRETTY_NAME:-$OS_ID}"
 fi
+
+DEB_ARCH="$(dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null || echo amd64)"
+DEB_NAME="dsh-desktop_${VERSION}_${DEB_ARCH}.deb"
 
 # 2. Verify / Install Node.js 22 LTS if node -v is below 20.12
 echo "[2/6] Checking Node.js version..."
@@ -66,6 +68,10 @@ sudo npm install -g pnpm electron "@deepseek-ai/dsh@${SUPPORTED_DSH_VERSION}"
 
 # 4. Install prebuilt sharp and native platform binaries globally
 echo "[4/6] Installing prebuilt native sharp binaries..."
+if ! command -v dpkg-architecture >/dev/null 2>&1; then
+  echo "Error: dpkg-architecture is required. Install with: sudo apt install -y dpkg-dev" >&2
+  exit 1
+fi
 ARCH="$(dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null || echo amd64)"
 case "$ARCH" in
   amd64) SHARP_PKG="@img/sharp-linux-x64" ;;
@@ -80,18 +86,59 @@ WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 DEB_DEST="${WORK_DIR}/${DEB_NAME}"
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${DEB_NAME}"
+
+verify_sha() {
+    local target_file="$1"
+    echo "Verifying package checksum (SHA256)..."
+    local actual_sha
+    actual_sha=$(sha256sum "$target_file" | cut -d' ' -f1)
+
+    local expected_sha=""
+    if curl -sLf "${DOWNLOAD_URL}.sha256" -o "${WORK_DIR}/${DEB_NAME}.sha256" 2>/dev/null; then
+        expected_sha=$(awk '{print $1}' "${WORK_DIR}/${DEB_NAME}.sha256" | head -n 1)
+    fi
+
+    if [ -z "$expected_sha" ]; then
+        local release_json
+        release_json=$(curl -s "https://api.github.com/repos/${REPO}/releases/tags/v${VERSION}" 2>/dev/null || true)
+        if [ -n "$release_json" ]; then
+            expected_sha=$(echo "$release_json" | grep -oE '"digest":\s*"sha256:[a-f0-9]{64}"' | cut -d: -f3 | tr -d '"' | head -n 1 || true)
+            if [ -z "$expected_sha" ]; then
+                expected_sha=$(echo "$release_json" | grep -E "$DEB_NAME" | grep -oE '[a-f0-9]{64}' | head -n 1 || true)
+            fi
+        fi
+    fi
+
+    if [ -z "$expected_sha" ] && [ "$VERSION" = "1.0.0" ]; then
+        expected_sha="9f7f96fecdb69e440177aaf0ebeecbf1eb18ec5ff47de2867c26ac8f346dbb51"
+    fi
+
+    if [ -n "$expected_sha" ]; then
+        if [ "$actual_sha" != "$expected_sha" ]; then
+            echo "Error: SHA256 checksum verification failed for ${DEB_NAME}!" >&2
+            echo "  Expected: ${expected_sha}" >&2
+            echo "  Actual:   ${actual_sha}" >&2
+            exit 1
+        fi
+        echo "SHA256 checksum verified: ${actual_sha}"
+    else
+        echo "Error: Could not retrieve expected SHA256 checksum for verification." >&2
+        exit 1
+    fi
+}
 
 # Check if local package exists first (for local workspace installs)
 if [ -f "./${DEB_NAME}" ]; then
     echo "Using local package: ./${DEB_NAME}"
     cp "./${DEB_NAME}" "$DEB_DEST"
+    verify_sha "$DEB_DEST"
 else
     # Try fetching latest release from GitHub Releases
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${DEB_NAME}"
     echo "Downloading from: $DOWNLOAD_URL"
     if ! curl -fL --progress-bar -o "$DEB_DEST" "$DOWNLOAD_URL"; then
         echo "Direct release download failed, attempting GitHub API lookup..."
-        LATEST_URL=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | grep "browser_download_url.*${PACKAGE_ARCH:-amd64}\.deb" | cut -d '"' -f 4 | head -n 1 || true)
+        LATEST_URL=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | grep "browser_download_url.*${DEB_ARCH}\.deb" | cut -d '"' -f 4 | head -n 1 || true)
         if [ -n "$LATEST_URL" ]; then
             curl -fL --progress-bar -o "$DEB_DEST" "$LATEST_URL"
         else
@@ -100,41 +147,7 @@ else
             exit 1
         fi
     fi
-
-    echo "Verifying package checksum (SHA256)..."
-    ACTUAL_SHA256=$(sha256sum "$DEB_DEST" | cut -d' ' -f1)
-
-    EXPECTED_SHA256=""
-    if curl -sLf "${DOWNLOAD_URL}.sha256" -o "${WORK_DIR}/${DEB_NAME}.sha256" 2>/dev/null; then
-        EXPECTED_SHA256=$(awk '{print $1}' "${WORK_DIR}/${DEB_NAME}.sha256" | head -n 1)
-    fi
-
-    if [ -z "$EXPECTED_SHA256" ]; then
-        RELEASE_JSON=$(curl -s "https://api.github.com/repos/${REPO}/releases/tags/v${VERSION}" 2>/dev/null || true)
-        if [ -n "$RELEASE_JSON" ]; then
-            EXPECTED_SHA256=$(echo "$RELEASE_JSON" | grep -oE '"digest":\s*"sha256:[a-f0-9]{64}"' | cut -d: -f3 | tr -d '"' | head -n 1 || true)
-            if [ -z "$EXPECTED_SHA256" ]; then
-                EXPECTED_SHA256=$(echo "$RELEASE_JSON" | grep -E "$DEB_NAME" | grep -oE '[a-f0-9]{64}' | head -n 1 || true)
-            fi
-        fi
-    fi
-
-    if [ -z "$EXPECTED_SHA256" ] && [ "$VERSION" = "1.0.0" ]; then
-        EXPECTED_SHA256="9f7f96fecdb69e440177aaf0ebeecbf1eb18ec5ff47de2867c26ac8f346dbb51"
-    fi
-
-    if [ -n "$EXPECTED_SHA256" ]; then
-        if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-            echo "Error: SHA256 checksum verification failed for ${DEB_NAME}!" >&2
-            echo "  Expected: ${EXPECTED_SHA256}" >&2
-            echo "  Actual:   ${ACTUAL_SHA256}" >&2
-            exit 1
-        fi
-        echo "SHA256 checksum verified: ${ACTUAL_SHA256}"
-    else
-        echo "Error: Could not retrieve expected SHA256 checksum for verification." >&2
-        exit 1
-    fi
+    verify_sha "$DEB_DEST"
 fi
 
 # 6. Install package with apt
