@@ -7,6 +7,7 @@ import { join } from 'node:path'
 
 import {
   generationBuildApprovals,
+  generationInstallEnvironment,
   installGeneration
 } from '../usr/share/dsh-desktop/lib/plugin-manager/installer.mjs'
 import {
@@ -14,6 +15,26 @@ import {
   listGenerations,
   registryLayout
 } from '../usr/share/dsh-desktop/lib/plugin-manager/registry.mjs'
+
+test('generationInstallEnvironment sets ELECTRON_RUN_AS_NODE for electron executable', () => {
+  const env = generationInstallEnvironment({}, '/usr/bin/electron')
+  assert.equal(env.ELECTRON_RUN_AS_NODE, '1')
+  assert.equal(env.CI, 'true')
+  assert.equal(env.NO_COLOR, '1')
+  assert.equal(env.npm_config_side_effects_cache, 'false')
+})
+
+test('generationInstallEnvironment does not set ELECTRON_RUN_AS_NODE for node executable', () => {
+  const env = generationInstallEnvironment({}, '/usr/bin/node')
+  assert.equal(env.ELECTRON_RUN_AS_NODE, undefined)
+  assert.equal(env.CI, 'true')
+  assert.equal(env.NO_COLOR, '1')
+})
+
+test('generationInstallEnvironment preserves existing ELECTRON_RUN_AS_NODE', () => {
+  const env = generationInstallEnvironment({ ELECTRON_RUN_AS_NODE: 'custom' }, '/usr/bin/node')
+  assert.equal(env.ELECTRON_RUN_AS_NODE, 'custom')
+})
 
 async function scratch(t) {
   const home = await mkdtemp(join(tmpdir(), 'dsh-installer-'))

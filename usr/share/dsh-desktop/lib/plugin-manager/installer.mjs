@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, relative } from 'node:path'
+import { basename, isAbsolute, join, relative } from 'node:path'
 
 import { LIVE_PROFILE } from './paths.mjs'
 import { ensureRegistryDirectories, generationId, writeGenerationMeta } from './registry.mjs'
@@ -20,9 +20,11 @@ function isHostSingleton(name) {
   return HOST_SINGLETON_PATTERNS.some((pattern) => pattern.test(name))
 }
 
-export function generationInstallEnvironment(environment = process.env) {
+export function generationInstallEnvironment(environment = process.env, executablePath) {
+  const isElectron = typeof executablePath === 'string' && basename(executablePath).toLowerCase().includes('electron')
   return {
     ...environment,
+    ...(isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
     CI: 'true',
     NO_COLOR: '1',
     npm_config_side_effects_cache: 'false'
@@ -108,7 +110,7 @@ async function defaultRunInstall(options, stagingDir) {
       ],
       {
         cwd: stagingDir,
-        env: generationInstallEnvironment(options.environment ?? process.env),
+        env: generationInstallEnvironment(options.environment ?? process.env, options.nodeExecutablePath),
         stdio: ['ignore', 'pipe', 'pipe']
       }
     )
