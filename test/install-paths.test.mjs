@@ -69,3 +69,16 @@ test('install paths: debian/postrm has distinct remove) and purge) arms with app
   assert.doesNotMatch(removeArmMatch[1], /apparmor_parser -R/, 'remove arm must not unload AppArmor')
   assert.match(purgeArmMatch[1], /apparmor_parser -R/, 'purge arm must unload AppArmor')
 })
+
+test('install paths: postinst uses runuser and conditional linger, build.sh references enabled unattended-upgrades', () => {
+  const postinstPath = path.join(rootDir, 'debian/postinst')
+  const buildShPath = path.join(rootDir, 'build.sh')
+
+  const postinstContent = fs.readFileSync(postinstPath, 'utf8')
+  const buildShContent = fs.readFileSync(buildShPath, 'utf8')
+
+  assert.doesNotMatch(postinstContent, /sudo -u/, 'postinst must not use sudo -u')
+  assert.match(postinstContent, /runuser -u/, 'postinst must use runuser -u')
+  assert.match(postinstContent, /\/etc\/dsh-desktop\/linger-enabled/, 'postinst must check linger-enabled')
+  assert.match(buildShContent, /etc\/apt\/apt\.conf\.d\/51dsh-desktop-unattended-upgrades["\s]/, 'build.sh must reference non-.disabled unattended-upgrades file')
+})

@@ -115,8 +115,8 @@ if [ ! -f "${STAGING_DIR}/usr/share/polkit-1/actions/io.ridgebridge.dsh-desktop.
     echo "Error: usr/share/polkit-1/actions/io.ridgebridge.dsh-desktop.upgrade.policy was not staged." >&2
     exit 1
 fi
-if [ ! -f "${STAGING_DIR}/etc/apt/apt.conf.d/51dsh-desktop-unattended-upgrades.disabled" ]; then
-    echo "Error: etc/apt/apt.conf.d/51dsh-desktop-unattended-upgrades.disabled was not staged." >&2
+if [ ! -f "${STAGING_DIR}/etc/apt/apt.conf.d/51dsh-desktop-unattended-upgrades" ]; then
+    echo "Error: etc/apt/apt.conf.d/51dsh-desktop-unattended-upgrades was not staged." >&2
     exit 1
 fi
 
