@@ -24,6 +24,7 @@ export async function ensureDataDirs(options = {}) {
   try {
     await mkdir(profilesRoot(dshRoot), { recursive: true })
     await mkdir(join(userHome, '.local', 'share', 'dsh-desktop'), { recursive: true })
+    await mkdir(join(dshRoot, '.agent-presets'), { recursive: true })
     return { ok: true }
   } catch (error) {
     return { ok: false, detail: error.message }

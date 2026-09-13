@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile, chmod } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile, chmod, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -34,6 +34,8 @@ test('fresh root creates dirs and manifest with the reference shape', async (t) 
   const userHome = await scratch(t)
   const dirs = await ensureDataDirs({ dshRoot: root, userHome })
   assert.equal(dirs.ok, true)
+  const presetsStat = await stat(join(root, '.agent-presets'))
+  assert.equal(presetsStat.isDirectory(), true)
   const profile = await ensureDefaultProfile({ dshRoot: root })
   assert.equal(profile.ok, true)
   const manifest = JSON.parse(await readFile(join(root, 'profiles', 'default', 'package.json'), 'utf8'))

@@ -497,3 +497,22 @@ test('server: preset routes work when mounted on market server', async (t) => {
   assert.equal(res.status, 200)
   assert.equal(res.headers.get('content-type'), 'application/vnd.dsh.preset+zip')
 })
+
+test('createPresetRequestHandler with defaultPresetRoots and nonexistent home does not throw on export', async (t) => {
+  const nonexistentHome = join(tmpdir(), `nonexistent-dsh-home-${Date.now()}`)
+  const handler = createPresetRequestHandler({
+    dshHome: nonexistentHome,
+    scanRootFn: async () => []
+  })
+  const req = {
+    url: `${PRESET_EXPORT_PATH}?agentPreset=test-preset`,
+    method: 'GET',
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: {}
+  }
+  const res = mockRes()
+  await assert.doesNotReject(() => handler(req, res))
+  assert.equal(res.statusCode, 404)
+  assert.match(JSON.parse(res.body).error, /Preset not found/u)
+})
+
