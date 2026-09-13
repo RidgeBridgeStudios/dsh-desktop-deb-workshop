@@ -313,11 +313,33 @@ test('stopDshBackend: prefers systemctl and only pkills exact daemon path if sys
   const daemonBin = resolveDaemonBin()
   assert.ok(typeof daemonBin === 'string' && daemonBin.length > 0)
 
-  // In this testing environment, systemctl is available
-  // stopDshBackend runs systemctl --user stop
-  await assert.doesNotReject(async () => {
-    await stopDshBackend()
-  })
+  const calls = []
+  const fakeExecuteCommand = async (cmd, args) => {
+    if (cmd !== 'systemctl' && cmd !== 'pkill') {
+      throw new Error(`Unexpected command: ${cmd}`)
+    }
+    calls.push({ cmd, args })
+    return { error: null, stdout: '', stderr: '' }
+  }
+
+  await stopDshBackend({ executeCommand: fakeExecuteCommand })
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0], { cmd: 'systemctl', args: ['--user', 'stop', 'dsh-desktop.service'] })
+
+  // When systemctl is unavailable, fallback to pkill with daemonBin
+  const unavailableCalls = []
+  const fakeUnavailable = async (cmd, args) => {
+    unavailableCalls.push({ cmd, args })
+    if (cmd === 'systemctl') {
+      return { error: { code: 'ENOENT' }, stdout: '', stderr: 'systemd not found' }
+    }
+    return { error: null, stdout: '', stderr: '' }
+  }
+
+  await stopDshBackend({ executeCommand: fakeUnavailable })
+  assert.equal(unavailableCalls.length, 2)
+  assert.deepEqual(unavailableCalls[0], { cmd: 'systemctl', args: ['--user', 'stop', 'dsh-desktop.service'] })
+  assert.deepEqual(unavailableCalls[1], { cmd: 'pkill', args: ['-f', daemonBin] })
 })
 
 test('preset:get-import-data: only reads supervisor.importPresetPath, enforces .dshpreset and realpath matching', async (t) => {

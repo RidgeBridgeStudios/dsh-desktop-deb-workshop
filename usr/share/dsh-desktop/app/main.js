@@ -299,8 +299,9 @@ export async function checkDshStatus() {
   return dshStatus;
 }
 
-export async function stopDshBackend() {
-  const res = await executeCommand('systemctl', ['--user', 'stop', 'dsh-desktop.service']);
+export async function stopDshBackend(options = {}) {
+  const execCmd = options.executeCommand || executeCommand;
+  const res = await execCmd('systemctl', ['--user', 'stop', 'dsh-desktop.service']);
   const isSystemdUnavailable = Boolean(
     res.error && (
       res.error.code === 'ENOENT' ||
@@ -315,7 +316,7 @@ export async function stopDshBackend() {
   if (isSystemdUnavailable) {
     const daemonBin = resolveDaemonBin();
     if (daemonBin) {
-      await executeCommand('pkill', ['-f', daemonBin]);
+      await execCmd('pkill', ['-f', daemonBin]);
     }
   }
 }
