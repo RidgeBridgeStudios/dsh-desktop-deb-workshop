@@ -51,3 +51,21 @@ test('install paths: service ExecStart matches desktop entry Exec binary path', 
   assert.match(desktopAppContent, /Exec=\/usr\/bin\/dsh-desktop/)
   assert.match(desktopPresetContent, /Exec=\/usr\/bin\/dsh-desktop --import-preset=%f/)
 })
+
+test('install paths: debian/postrm has distinct remove) and purge) arms with apparmor_parser in purge only', () => {
+  const postrmPath = path.join(rootDir, 'debian/postrm')
+  const postrmContent = fs.readFileSync(postrmPath, 'utf8')
+
+  assert.doesNotMatch(postrmContent, /remove\|purge\)/, 'remove and purge arms must be separate')
+  assert.match(postrmContent, /remove\)/, 'postrm must contain remove) arm')
+  assert.match(postrmContent, /purge\)/, 'postrm must contain purge) arm')
+
+  const removeArmMatch = postrmContent.match(/remove\)([\s\S]*?);;/)
+  const purgeArmMatch = postrmContent.match(/purge\)([\s\S]*?);;/)
+
+  assert.ok(removeArmMatch, 'remove) arm must terminate with ;;')
+  assert.ok(purgeArmMatch, 'purge) arm must terminate with ;;')
+
+  assert.doesNotMatch(removeArmMatch[1], /apparmor_parser -R/, 'remove arm must not unload AppArmor')
+  assert.match(purgeArmMatch[1], /apparmor_parser -R/, 'purge arm must unload AppArmor')
+})

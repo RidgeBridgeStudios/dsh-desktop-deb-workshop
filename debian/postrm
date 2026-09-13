@@ -2,7 +2,7 @@
 set -e
 
 case "$1" in
-    remove|purge)
+    remove)
         TARGET_USER="${SUDO_USER:-}"
         if [ -z "$TARGET_USER" ] || [ "$TARGET_USER" = "root" ]; then
             TARGET_USER=$(awk -F: '$3 >= 1000 && $3 < 65534 && $6 ~ /^\/home/ {print $1; exit}' /etc/passwd || echo "")
@@ -34,6 +34,36 @@ case "$1" in
         rm -f /usr/bin/dsh-desktop /usr/bin/dsh-desktop-daemon /usr/bin/dsh-desktop-upgrade-helper
         ;;
     purge)
+        TARGET_USER="${SUDO_USER:-}"
+        if [ -z "$TARGET_USER" ] || [ "$TARGET_USER" = "root" ]; then
+            TARGET_USER=$(awk -F: '$3 >= 1000 && $3 < 65534 && $6 ~ /^\/home/ {print $1; exit}' /etc/passwd || echo "")
+        fi
+
+        if [ -n "$TARGET_USER" ] && id -u "$TARGET_USER" >/dev/null 2>&1; then
+            USER_UID=$(id -u "$TARGET_USER")
+            USER_RUNDIR="/run/user/$USER_UID"
+            if [ -d "$USER_RUNDIR" ] && command -v systemctl >/dev/null 2>&1; then
+                sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user daemon-reload 2>/dev/null || true
+                sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user reset-failed 2>/dev/null || true
+            fi
+        fi
+
+        if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database /usr/share/applications/ 2>/dev/null || true
+        fi
+        if command -v update-mime-database >/dev/null 2>&1; then
+            update-mime-database /usr/share/mime 2>/dev/null || true
+        fi
+        if command -v update-icon-caches >/dev/null 2>&1; then
+            update-icon-caches /usr/share/icons/hicolor 2>/dev/null || true
+        elif command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+        fi
+
+        # NOTE: We deliberately preserve ~/.dsh/ so user profiles and chats survive package removal
+
+        rm -f /usr/bin/dsh-desktop /usr/bin/dsh-desktop-daemon /usr/bin/dsh-desktop-upgrade-helper
+
         # Remove AppArmor profile if apparmor_parser is available and the
         # profile is still present on disk. No-op if AppArmor is not active.
         if [ -x /usr/sbin/apparmor_parser ] && \
