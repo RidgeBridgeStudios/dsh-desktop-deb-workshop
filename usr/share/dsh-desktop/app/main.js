@@ -289,8 +289,9 @@ export function executeCommand(file, args = []) {
   });
 }
 
-export async function checkDshStatus() {
-  const systemctlRes = await executeCommand('systemctl', ['--user', 'is-active', 'dsh-desktop.service']);
+export async function checkDshStatus(options = {}) {
+  const execCmd = options.executeCommand || executeCommand;
+  const systemctlRes = await execCmd('systemctl', ['--user', 'is-active', 'dsh-desktop.service']);
   if (systemctlRes.stdout === 'active') {
     dshStatus = { active: true, detail: 'systemd service active' };
     return dshStatus;
@@ -298,7 +299,7 @@ export async function checkDshStatus() {
 
   const daemonBin = resolveDaemonBin();
   if (daemonBin === null) return { active: false, detail: 'offline' };
-  const pgrepRes = await executeCommand('pgrep', ['-f', daemonBin]);
+  const pgrepRes = await execCmd('pgrep', ['-f', daemonBin]);
   if (pgrepRes.stdout.length > 0) {
     dshStatus = { active: true, detail: 'daemon process active' };
     return dshStatus;
@@ -331,15 +332,16 @@ export async function stopDshBackend(options = {}) {
 }
 
 export async function restartDshBackend(options = {}) {
-  const { stdout } = await executeCommand('systemctl', ['--user', 'is-active', 'dsh-desktop.service']);
+  const execCmd = options.executeCommand || executeCommand;
+  const { stdout } = await execCmd('systemctl', ['--user', 'is-active', 'dsh-desktop.service']);
   if (stdout === 'active' || stdout === 'activating' || stdout === 'failed') {
-    const restartRes = await executeCommand('systemctl', ['--user', 'restart', 'dsh-desktop.service']);
+    const restartRes = await execCmd('systemctl', ['--user', 'restart', 'dsh-desktop.service']);
     if (!restartRes.error) {
       return true;
     }
   }
 
-  await stopDshBackend();
+  await stopDshBackend(options);
   await new Promise((resolve) => setTimeout(resolve, 600));
 
   const daemonBin = resolveDaemonBin();
@@ -728,6 +730,22 @@ export async function withDaemonStopped(action, context = {}) {
   const wasRunning = status.active;
   if (wasRunning) {
     await stopper();
+    const { waitForStop = true, stopTimeoutMs = 5000, stopPollMs = 100 } = context;
+    if (waitForStop) {
+      const deadline = Date.now() + stopTimeoutMs;
+      let stopped = false;
+      while (Date.now() < deadline) {
+        const s = await checker();
+        if (!s.active) {
+          stopped = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, stopPollMs));
+      }
+      if (!stopped) {
+        process.stderr.write('dsh-desktop: daemon did not stop within timeout; proceeding anyway\n');
+      }
+    }
   }
   let actionError = null;
   try {

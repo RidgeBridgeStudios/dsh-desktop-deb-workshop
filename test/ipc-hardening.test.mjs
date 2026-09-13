@@ -401,7 +401,8 @@ test('withDaemonStopped: preserves action error even if restarter throws', async
     stopBackend: async () => {},
     restartBackend: async () => {
       throw new Error('B')
-    }
+    },
+    waitForStop: false
   }
 
   await assert.rejects(
@@ -416,3 +417,64 @@ test('withDaemonStopped: preserves action error even if restarter throws', async
     }
   )
 })
+
+test('withDaemonStopped with a fake checkStatus that returns active twice then inactive waits for stop', async () => {
+  let polls = 0
+  let actionRanAtPoll = 0
+  const context = {
+    checkStatus: async () => {
+      polls += 1
+      if (polls <= 2) return { active: true }
+      return { active: false }
+    },
+    stopBackend: async () => {},
+    restartBackend: async () => {},
+    stopPollMs: 10,
+    stopTimeoutMs: 1000
+  }
+
+  await withDaemonStopped(async () => {
+    actionRanAtPoll = polls
+  }, context)
+
+  assert.equal(actionRanAtPoll, 3)
+})
+
+test('withDaemonStopped with a checker that always returns active runs after stopTimeoutMs without throwing', async () => {
+  let actionRan = false
+  const context = {
+    checkStatus: async () => ({ active: true }),
+    stopBackend: async () => {},
+    restartBackend: async () => {},
+    stopPollMs: 10,
+    stopTimeoutMs: 50
+  }
+
+  await assert.doesNotReject(async () => {
+    await withDaemonStopped(async () => {
+      actionRan = true
+    }, context)
+  })
+  assert.equal(actionRan, true)
+})
+
+test('stopDshBackend called from restartDshBackend receives options object', async () => {
+  const { restartDshBackend } = await import('../usr/share/dsh-desktop/app/main.js')
+  const calls = []
+  const spyExec = async (cmd, args) => {
+    calls.push({ cmd, args })
+    if (cmd === 'systemctl' && args.includes('is-active')) {
+      return { stdout: 'inactive' }
+    }
+    return { stdout: '' }
+  }
+
+  await restartDshBackend({
+    executeCommand: spyExec,
+    dshHome: '/tmp/test-home-options'
+  })
+
+  // stopDshBackend uses options.executeCommand
+  assert.ok(calls.some((c) => c.cmd === 'systemctl' && c.args.includes('stop')))
+})
+
