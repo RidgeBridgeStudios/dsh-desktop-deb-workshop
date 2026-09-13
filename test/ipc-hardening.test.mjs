@@ -319,3 +319,50 @@ test('stopDshBackend: prefers systemctl and only pkills exact daemon path if sys
     await stopDshBackend()
   })
 })
+
+test('preset:get-import-data: only reads supervisor.importPresetPath, enforces .dshpreset and realpath matching', async (t) => {
+  const fs = await import('node:fs/promises')
+  const os = await import('node:os')
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preset-test-'))
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  const validPresetPath = path.join(tmpDir, 'valid.dshpreset')
+  const presetContent = Buffer.from('preset-data-content')
+  await fs.writeFile(validPresetPath, presetContent)
+
+  const nonPresetPath = path.join(tmpDir, 'test.txt')
+  await fs.writeFile(nonPresetPath, Buffer.from('not-preset'))
+
+  const handlers = {}
+  const mockIpc = {
+    handle(channel, fn) {
+      handlers[channel] = fn
+    }
+  }
+
+  const supervisor = {
+    importPresetPath: validPresetPath
+  }
+
+  registerIpcHandlers(mockIpc, supervisor)
+  const trustedEvent = { senderFrame: { url: 'http://127.0.0.1:3080' } }
+
+  // a) reading exact path returns buffer
+  const validData = await handlers['preset:get-import-data'](trustedEvent, validPresetPath)
+  assert.ok(Buffer.isBuffer(validData))
+  assert.equal(validData.toString(), 'preset-data-content')
+
+  // b) reading '/etc/passwd' rejects or returns null
+  const passwdData = await handlers['preset:get-import-data'](trustedEvent, '/etc/passwd').catch(() => null)
+  assert.equal(passwdData, null)
+
+  // c) reading '../something.dshpreset' rejects or returns null
+  const relativeData = await handlers['preset:get-import-data'](trustedEvent, '../something.dshpreset').catch(() => null)
+  assert.equal(relativeData, null)
+
+  // d) reading a path with a non-.dshpreset extension rejects or returns null
+  const nonPresetData = await handlers['preset:get-import-data'](trustedEvent, nonPresetPath).catch(() => null)
+  assert.equal(nonPresetData, null)
+})

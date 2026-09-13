@@ -863,11 +863,20 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
 
   ipc.handle('preset:get-import-data', async (event, requestedPath) => {
     assertTrustedSender(event);
-    const targetPath = (typeof requestedPath === 'string' && requestedPath) || supervisor.importPresetPath || importPresetPath;
-    if (!targetPath) return null;
+    if (!supervisor.importPresetPath) return null;
+    if (typeof requestedPath !== 'string' || !path.isAbsolute(requestedPath) || !requestedPath.endsWith('.dshpreset')) {
+      return null;
+    }
+    const targetPath = supervisor.importPresetPath;
     try {
-      if (!fs.existsSync(targetPath)) return null;
-      return await fs.promises.readFile(targetPath);
+      const [targetReal, presetReal] = await Promise.all([
+        fs.promises.realpath(targetPath),
+        fs.promises.realpath(supervisor.importPresetPath)
+      ]);
+      if (targetReal !== presetReal) return null;
+      const requestedReal = await fs.promises.realpath(requestedPath);
+      if (requestedReal !== presetReal) return null;
+      return await fs.promises.readFile(targetReal);
     } catch {
       return null;
     }
