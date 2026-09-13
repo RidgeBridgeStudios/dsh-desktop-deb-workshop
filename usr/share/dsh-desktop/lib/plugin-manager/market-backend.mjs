@@ -8,6 +8,22 @@ import { MARKET_PACKAGE } from './market-constants.mjs'
 import { installGeneration } from './installer.mjs'
 import { disableGeneration, listGenerations, readDesired, writeDesired } from './registry.mjs'
 import { publishInstalledGeneration } from './projection.mjs'
+import { assertSupportedDsh, resolveRunningDshVersion } from './dsh-version.mjs'
+
+export function assertInstallableDshVersion(options = {}) {
+  let version
+  try {
+    const resolve = options.resolveDshVersion ?? resolveRunningDshVersion
+    version = options.dshVersion ?? resolve(options)
+  } catch (err) {
+    throw new Error(`Could not resolve the running DSH version; refusing to install. (${err.message})`)
+  }
+  if (version === null || version === undefined) {
+    throw new Error('Could not resolve the running DSH version; refusing to install.')
+  }
+  assertSupportedDsh(version)
+  return version
+}
 
 const OPERATION_TIMEOUT_MS = 15 * 60 * 1000
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/iu
@@ -106,6 +122,7 @@ function diagnostic(output) {
 }
 
 export async function installMarketShared(options) {
+  assertInstallableDshVersion(options)
   const {
     dshHome,
     profile = LIVE_PROFILE,
@@ -148,6 +165,7 @@ export async function uninstallMarketShared(options) {
 }
 
 export async function installCommunityPluginAsGeneration(spec, options) {
+  assertInstallableDshVersion(options)
   const { dshHome, profile = LIVE_PROFILE, expectedVersion, ...installOptions } = options
   const result = await installGeneration({
     dshHome,

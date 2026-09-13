@@ -325,3 +325,28 @@ test('every locale defines every key', () => {
   assert.equal(translate('zh-Hans', 'install'), LOCALES.zh.install)
   assert.equal(translate('fr', 'install'), LOCALES.en.install)
 })
+
+test('installCommunityPluginAsGeneration rejects before calling installGeneration when DSH version is unsupported', async () => {
+  const { installCommunityPluginAsGeneration } = await import('../usr/share/dsh-desktop/lib/plugin-manager/market-backend.mjs')
+  let mockedInstallGenerationCalled = false
+  const mockInstallGeneration = async () => {
+    mockedInstallGenerationCalled = true
+    throw new Error('mocked installGeneration should not be called')
+  }
+
+  await assert.rejects(
+    () => installCommunityPluginAsGeneration('community-pkg@1.0.0', {
+      dshHome: '/tmp/ignored',
+      dshVersion: '0.2.0',
+      installGeneration: mockInstallGeneration
+    }),
+    (err) => {
+      assert.ok(err instanceof Error)
+      assert.ok(err.message.includes('0.2.0'), 'Error must mention unsupported version 0.2.0')
+      assert.ok(!err.message.includes('mocked installGeneration'), 'Error must not come from mockInstallGeneration')
+      return true
+    }
+  )
+  assert.equal(mockedInstallGenerationCalled, false)
+})
+

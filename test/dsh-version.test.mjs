@@ -115,3 +115,59 @@ test('resolveRunningDshVersion does not consult <home>/package.json', async (t) 
   const version = resolveRunningDshVersion({ home: dir })
   assert.notEqual(version, '9.9.9')
 })
+
+test('installMarketShared with dshVersion 0.2.0 rejects before invoking the spawn function', async () => {
+  let runPluginCalled = false
+  const runPluginSpy = async () => {
+    runPluginCalled = true
+    return { code: 0, output: '' }
+  }
+
+  const { installMarketShared } = await import('../usr/share/dsh-desktop/lib/plugin-manager/market-backend.mjs')
+  await assert.rejects(
+    () => installMarketShared({
+      dshHome: '/tmp/ignored',
+      dshVersion: '0.2.0',
+      runPlugin: runPluginSpy
+    }),
+    /Unsupported DSH version "0.2.0"/
+  )
+  assert.equal(runPluginCalled, false)
+})
+
+test('installMarketShared with dshVersion 0.1.5-rc.1 proceeds and calls runPlugin', async () => {
+  let runPluginCalled = false
+  const runPluginSpy = async () => {
+    runPluginCalled = true
+    return { code: 0, output: '' }
+  }
+
+  const { installMarketShared } = await import('../usr/share/dsh-desktop/lib/plugin-manager/market-backend.mjs')
+  await installMarketShared({
+    dshHome: '/tmp/ignored',
+    dshVersion: '0.1.5-rc.1',
+    runPlugin: runPluginSpy,
+    dshEntryPath: '/dev/null'
+  })
+  assert.equal(runPluginCalled, true)
+})
+
+test('installMarketShared with resolveRunningDshVersion returning null rejects with /Could not resolve/', async () => {
+  let runPluginCalled = false
+  const runPluginSpy = async () => {
+    runPluginCalled = true
+    return { code: 0, output: '' }
+  }
+
+  const { installMarketShared } = await import('../usr/share/dsh-desktop/lib/plugin-manager/market-backend.mjs')
+  await assert.rejects(
+    () => installMarketShared({
+      dshHome: '/tmp/nonexistent-home-12345',
+      resolveDshVersion: () => null,
+      runPlugin: runPluginSpy
+    }),
+    /Could not resolve the running DSH version; refusing to install\./
+  )
+  assert.equal(runPluginCalled, false)
+})
+
