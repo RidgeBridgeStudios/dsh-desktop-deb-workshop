@@ -1,3 +1,12 @@
+dsh-desktop (1.0.2) stable; urgency=medium
+
+  * Preinstalled market seeding during first daemon boot and package install.
+  * Ensure pnpm-workspace.yaml exists in profile root to support pnpm --workspace-root.
+  * Harden marketAlreadyComposed to query loopback STATUS_PATH.
+  * Non-fatal bootstrap error handling with offline tolerance.
+
+ -- RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>  Sun, 13 Sep 2026 13:52:00 +0200
+
 dsh-desktop (1.0.1) stable; urgency=medium
 
   * Pure JS Debian version comparator in update-check.

@@ -65,7 +65,7 @@ import {
 
 export { resetCircuit, resetCircuitState };
 
-export const VERSION = '1.0.1';
+export const VERSION = '1.0.2';
 
 export function detectLocale(electronApp = electron?.app) {
   if (electronApp && typeof electronApp.getLocale === 'function') {
