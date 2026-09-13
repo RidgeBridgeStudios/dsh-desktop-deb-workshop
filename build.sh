@@ -98,6 +98,28 @@ cp -r "${SCRIPT_DIR}/usr/"* "${STAGING_DIR}/usr/"
 cp -r "${SCRIPT_DIR}/etc/"* "${STAGING_DIR}/etc/"
 cp -r "${SCRIPT_DIR}/lib/"* "${STAGING_DIR}/lib/"
 
+# Verify MIME package and preset desktop staging
+if [ ! -f "${STAGING_DIR}/usr/share/mime/packages/dsh-desktop.xml" ]; then
+    echo "Error: usr/share/mime/packages/dsh-desktop.xml was not staged." >&2
+    exit 1
+fi
+if [ ! -f "${STAGING_DIR}/usr/share/applications/dsh-desktop-preset.desktop" ]; then
+    echo "Error: usr/share/applications/dsh-desktop-preset.desktop was not staged." >&2
+    exit 1
+fi
+if [ ! -f "${STAGING_DIR}/usr/lib/dsh-desktop/bin/dsh-desktop-upgrade-helper" ]; then
+    echo "Error: usr/lib/dsh-desktop/bin/dsh-desktop-upgrade-helper was not staged." >&2
+    exit 1
+fi
+if [ ! -f "${STAGING_DIR}/usr/share/polkit-1/actions/io.ridgebridge.dsh-desktop.upgrade.policy" ]; then
+    echo "Error: usr/share/polkit-1/actions/io.ridgebridge.dsh-desktop.upgrade.policy was not staged." >&2
+    exit 1
+fi
+if [ ! -f "${STAGING_DIR}/etc/apt/apt.conf.d/51dsh-desktop-unattended-upgrades.disabled" ]; then
+    echo "Error: etc/apt/apt.conf.d/51dsh-desktop-unattended-upgrades.disabled was not staged." >&2
+    exit 1
+fi
+
 # Validate AppArmor profile syntax at build time.
 # Fails the build on parse error when apparmor_parser is present (set -e).
 # Silently skipped on hosts without AppArmor (CI, non-AppArmor kernels).
@@ -129,6 +151,7 @@ find "$STAGING_DIR" -type f -exec chmod 0644 {} +
 # Executable binaries and scripts: 0755
 chmod 0755 "${STAGING_DIR}/usr/lib/dsh-desktop/bin/dsh-desktop"
 chmod 0755 "${STAGING_DIR}/usr/lib/dsh-desktop/bin/dsh-desktop-daemon"
+chmod 0755 "${STAGING_DIR}/usr/lib/dsh-desktop/bin/dsh-desktop-upgrade-helper"
 
 # Maintainer scripts in DEBIAN: 0755
 [ -f "${STAGING_DIR}/DEBIAN/postinst" ] && chmod 0755 "${STAGING_DIR}/DEBIAN/postinst"

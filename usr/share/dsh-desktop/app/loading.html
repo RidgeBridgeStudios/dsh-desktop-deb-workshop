@@ -120,6 +120,9 @@
       <div class="dot"></div>
       <span id="status-text">Connecting to local daemon...</span>
     </div>
+    <div id="update-banner" style="display: none; margin-top: 1rem; padding: 0.4rem 0.8rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; font-size: 0.8125rem; color: #38bdf8;">
+      <span id="update-banner-text">Update available</span>
+    </div>
     <div id="error-box" class="error-box"></div>
   </div>
   <script>
@@ -163,6 +166,20 @@
         errBox.style.display = 'block';
       }
     };
+
+    if (window.dshDesktop && typeof window.dshDesktop.updateAvailable === 'function') {
+      window.dshDesktop.updateAvailable().then((res) => {
+        if (res && res.available) {
+          const banner = document.getElementById('update-banner');
+          const bannerText = document.getElementById('update-banner-text');
+          if (banner && bannerText) {
+            const displayVersion = String(res.version || '').startsWith('v') ? res.version : `v${res.version}`;
+            bannerText.textContent = `Update available: ${displayVersion}`;
+            banner.style.display = 'inline-block';
+          }
+        }
+      }).catch(() => {});
+    }
   </script>
 </body>
 </html>

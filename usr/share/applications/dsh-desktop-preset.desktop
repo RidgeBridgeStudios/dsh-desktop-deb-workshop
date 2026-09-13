@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=DSH Desktop Preset Importer
+GenericName=DeepSeek Harness Preset
+Comment=Import DeepSeek Harness agent preset
+Exec=/usr/bin/dsh-desktop --import-preset=%f
+Icon=dsh-desktop
+Terminal=false
+Type=Application
+MimeType=application/x-dshpreset;
+NoDisplay=false
+Categories=Development;Utility;Chat;
+StartupWMClass=dsh-desktop
+Keywords=DeepSeek;Harness;DSH;AI;Agent;Preset;

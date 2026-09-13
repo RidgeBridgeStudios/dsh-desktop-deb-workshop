@@ -10,6 +10,7 @@ Restart=on-failure
 RestartSec=3
 StartLimitIntervalSec=60
 StartLimitBurst=5
+RestartPreventExitStatus=75
 Environment=PATH=%h/.dsh/.desktop-bin:/usr/bin:/bin
 SyslogIdentifier=dsh-desktop
 StandardOutput=journal

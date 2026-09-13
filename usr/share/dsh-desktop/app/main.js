@@ -53,8 +53,17 @@ import {
 import {
   checkForUpdates,
   getAvailableUpdate,
-  setAvailableUpdate
+  setAvailableUpdate,
+  formatUpdateLabel
 } from './update-check.mjs';
+import {
+  isSystemCircuitOpen,
+  markReady,
+  resetCircuitState,
+  resetCircuit
+} from '../lib/plugin-manager/circuit-breaker.mjs';
+
+export { resetCircuit, resetCircuitState };
 
 export const VERSION = '1.0.0';
 
@@ -151,6 +160,22 @@ let dshStatus = {
   detail: 'Checking...'
 };
 
+export function resolveImportPresetPath(argv = process.argv) {
+  if (!Array.isArray(argv)) return null;
+  for (const arg of argv.slice(1)) {
+    if (typeof arg === 'string') {
+      if (arg.startsWith('--import-preset=')) {
+        return arg.slice('--import-preset='.length);
+      }
+    }
+  }
+  const idx = argv.indexOf('--import-preset');
+  if (idx !== -1 && idx + 1 < argv.length) {
+    return argv[idx + 1];
+  }
+  return null;
+}
+
 export function resolveTargetUrl(argv = process.argv) {
   for (const arg of argv.slice(1)) {
     if (arg.startsWith('--url=')) {
@@ -164,6 +189,7 @@ export function resolveTargetUrl(argv = process.argv) {
 }
 
 const targetUrl = resolveTargetUrl();
+const importPresetPath = resolveImportPresetPath();
 
 export function resolveIconPath() {
   const candidates = [
@@ -464,6 +490,44 @@ export function checkRecentLogFailures() {
   }
 }
 
+export function loadRecoveryPage(options = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const locale = options.locale || detectLocale();
+  const failureModel = options.failureModel || {
+    locale,
+    plugins: [],
+    structured: false,
+    rawError: options.rawError || 'Circuit breaker open: 3 startup failures detected within 60s.'
+  };
+
+  const onFailLoad = () => {
+    if (!shouldStartInSafeMode(process.argv)) {
+      relaunchSafeMode();
+    }
+  };
+
+  if (mainWindow.webContents) {
+    mainWindow.webContents.once('did-fail-load', onFailLoad);
+  }
+
+  const loadPromise = mainWindow.loadFile(path.join(__dirname, 'recovery.html'));
+  if (loadPromise && typeof loadPromise.then === 'function') {
+    loadPromise.then(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+        mainWindow.webContents.removeListener('did-fail-load', onFailLoad);
+        mainWindow.webContents.executeJavaScript(
+          `window.__DSH_LOCALE__ = ${JSON.stringify(locale)}; if (typeof window.applyLocale === 'function') window.applyLocale(${JSON.stringify(locale)}); window.setRecoveryModel && window.setRecoveryModel(${JSON.stringify(failureModel)});`
+        ).catch(() => {});
+      }
+    }).catch(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+        mainWindow.webContents.removeListener('did-fail-load', onFailLoad);
+      }
+      onFailLoad();
+    });
+  }
+}
+
 export function pollAndLoad() {
   if (isPolling) return;
   isPolling = true;
@@ -474,24 +538,29 @@ export function pollAndLoad() {
     attempts++;
     checkServerReady(targetUrl, (ready) => {
       if (ready) {
+        markReady();
         isPolling = false;
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.loadURL(targetUrl);
+          if (importPresetPath) {
+            mainWindow.webContents.once('did-finish-load', () => {
+              triggerPresetImportPreview(mainWindow, importPresetPath);
+            });
+          }
         }
         checkDshStatus().then(() => updateTrayMenu());
       } else {
+        if (isSystemCircuitOpen()) {
+          isPolling = false;
+          loadRecoveryPage();
+          checkDshStatus().then(() => updateTrayMenu());
+          return;
+        }
+
         const failureModel = checkRecentLogFailures();
         if (failureModel) {
           isPolling = false;
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            const locale = detectLocale();
-            mainWindow.loadFile(path.join(__dirname, 'recovery.html'));
-            mainWindow.webContents.once('did-finish-load', () => {
-              mainWindow.webContents.executeJavaScript(
-                `window.__DSH_LOCALE__ = ${JSON.stringify(locale)}; if (typeof window.applyLocale === 'function') window.applyLocale(${JSON.stringify(locale)}); window.setRecoveryModel && window.setRecoveryModel(${JSON.stringify(failureModel)});`
-              ).catch(() => {});
-            });
-          }
+          loadRecoveryPage({ failureModel });
           checkDshStatus().then(() => updateTrayMenu());
           return;
         }
@@ -506,6 +575,9 @@ export function pollAndLoad() {
             mainWindow.webContents.executeJavaScript(
               `window.updateStatus && window.updateStatus(${JSON.stringify(timeoutMsg)}, true);`
             ).catch(() => {});
+            if (importPresetPath) {
+              showImportPresetMessage('Preset import flow is not ready (backend connection timed out).', mainWindow);
+            }
           }
           checkDshStatus().then(() => updateTrayMenu());
         }
@@ -654,6 +726,7 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
   const nodeExecutablePath = supervisor.nodeExecutablePath || process.execPath;
   const recommendedVersion = supervisor.recommendedVersion || RECOMMENDED_MARKET_VERSION;
   const home = supervisor.dshHome || defaultDshHome();
+  const resetCircuitFn = supervisor.resetCircuitState || resetCircuitState;
 
   ipc.handle('harness:restart', async (event) => {
     assertTrustedSender(event);
@@ -700,6 +773,7 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
       return relaunchSafeModeFn();
     }
     if (action === 'retry') {
+      await resetCircuitFn();
       return restartDshFn();
     }
     if (typeof action === 'string') {
@@ -781,6 +855,134 @@ export function registerIpcHandlers(ipc = ipcMain, supervisor = {}) {
     assertTrustedSender(event);
     return getSafeModeViewModel(options);
   });
+
+  ipc.handle('preset:get-import-path', async (event) => {
+    assertTrustedSender(event);
+    return supervisor.importPresetPath !== undefined ? supervisor.importPresetPath : importPresetPath;
+  });
+
+  ipc.handle('preset:get-import-data', async (event, requestedPath) => {
+    assertTrustedSender(event);
+    const targetPath = (typeof requestedPath === 'string' && requestedPath) || supervisor.importPresetPath || importPresetPath;
+    if (!targetPath) return null;
+    try {
+      if (!fs.existsSync(targetPath)) return null;
+      return await fs.promises.readFile(targetPath);
+    } catch {
+      return null;
+    }
+  });
+
+  ipc.handle('preset:show-message', async (event, message) => {
+    assertTrustedSender(event);
+    if (typeof message === 'string') {
+      showImportPresetMessage(message);
+    }
+    return { ok: true };
+  });
+
+  ipc.handle('update:available', async (event) => {
+    assertTrustedSender(event);
+    const update = supervisor.getAvailableUpdate ? supervisor.getAvailableUpdate() : getAvailableUpdate();
+    if (!update) return { available: false };
+    return {
+      available: Boolean(update.available),
+      version: update.version
+    };
+  });
+}
+
+export function showImportPresetMessage(message, win = mainWindow) {
+  if (Notification && Notification.isSupported()) {
+    try {
+      new Notification({
+        title: 'DSH Desktop - Agent Preset',
+        body: message
+      }).show();
+    } catch {}
+  }
+  if (win && !win.isDestroyed() && win.webContents) {
+    win.webContents.executeJavaScript(`
+      (function() {
+        const bannerId = 'dsh-preset-message-banner';
+        const existing = document.getElementById(bannerId);
+        if (existing) existing.remove();
+        const banner = document.createElement('div');
+        banner.id = bannerId;
+        banner.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1e293b;color:#f8fafc;padding:14px 20px;border-radius:8px;border:1px solid #38bdf8;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:999999;font-family:sans-serif;max-width:360px;font-size:14px;';
+        banner.innerHTML = '<div style="font-weight:600;margin-bottom:4px;color:#38bdf8;">Agent Preset</div><div>' + ${JSON.stringify(message)}.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+        document.body.appendChild(banner);
+        setTimeout(() => banner.remove(), 7000);
+      })();
+    `).catch(() => {});
+  }
+}
+
+export async function triggerPresetImportPreview(win = mainWindow, presetPath = importPresetPath) {
+  if (!win || win.isDestroyed() || !presetPath) return;
+  if (!fs.existsSync(presetPath)) {
+    showImportPresetMessage(`Preset file not found: ${presetPath}`, win);
+    return;
+  }
+  try {
+    await win.webContents.executeJavaScript(`
+      (async function() {
+        window.__DSH_IMPORT_PRESET_PATH__ = ${JSON.stringify(presetPath)};
+        if (typeof window.__dshHandlePresetImport === 'function') {
+          return window.__dshHandlePresetImport(${JSON.stringify(presetPath)});
+        }
+        try {
+          const data = await window.dshDesktop?.getImportPresetData?.(${JSON.stringify(presetPath)});
+          if (!data) {
+            window.dshDesktop?.showImportPresetMessage?.('Failed to read preset file');
+            return;
+          }
+          const res = await fetch('/api/agent-preset.import', {
+            method: 'POST',
+            body: data
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            window.dshDesktop?.showImportPresetMessage?.(err.error || 'Preset import flow is not ready');
+            return;
+          }
+          const preview = await res.json();
+          window.dispatchEvent(new CustomEvent('dsh:preset-preview', { detail: preview }));
+          if (typeof window.__dshShowPresetPreview === 'function') {
+            window.__dshShowPresetPreview(preview);
+          } else {
+            const existing = document.getElementById('dsh-preset-import-preview-modal');
+            if (existing) existing.remove();
+            const modal = document.createElement('div');
+            modal.id = 'dsh-preset-import-preview-modal';
+            modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);display:flex;align-items:center;justify-content:center;z-index:999999;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;';
+            const card = document.createElement('div');
+            card.style.cssText = 'background:#1e293b;color:#f8fafc;padding:24px;border-radius:12px;max-width:480px;width:90%;box-shadow:0 12px 32px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.1);display:flex;flex-direction:column;gap:12px;';
+            const escape = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            card.innerHTML = \`
+              <h2 style="margin:0;font-size:18px;font-weight:600;color:#f8fafc;">Agent Preset Import Preview</h2>
+              <div style="font-size:14px;color:#94a3b8;">\${escape(preview.description || 'No description provided.')}</div>
+              <div style="background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;font-size:13px;display:flex;flex-direction:column;gap:6px;">
+                <div><strong>Preset ID:</strong> \${escape(preview.agentPreset || preview.manifest?.id || 'Unknown')}</div>
+                <div><strong>Name:</strong> \${escape(preview.name || preview.manifest?.name || 'Unnamed')}</div>
+                <div><strong>Files:</strong> \${escape(preview.fileCount || 0)}</div>
+                <div><strong>Size:</strong> \${Math.round((preview.totalSize || 0) / 1024)} KB</div>
+                \${preview.conflict ? '<div style="color:#f87171;font-weight:500;">⚠ Conflict: a preset with this ID already exists.</div>' : ''}
+              </div>
+              <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
+                <button id="dsh-preset-preview-close" style="padding:6px 14px;border-radius:6px;background:#334155;color:#fff;border:none;cursor:pointer;font-size:13px;">Close</button>
+              </div>
+            \`;
+            modal.appendChild(card);
+            document.body.appendChild(modal);
+            document.getElementById('dsh-preset-preview-close')?.addEventListener('click', () => modal.remove());
+          }
+        } catch (err) {
+          window.dshDesktop?.showImportPresetMessage?.('Preset import flow is not ready: ' + (err.message || 'connection error'));
+        }
+      })();
+    `);
+  } catch {}
 }
 
 export function createWindow() {
@@ -860,6 +1062,27 @@ export function createWindow() {
   setupMenu();
 }
 
+export function runUpgradeHelper(options = {}) {
+  const helperPath = options.helperPath || '/usr/lib/dsh-desktop/bin/dsh-desktop-upgrade-helper';
+  const spawnFn = options.spawn || spawn;
+  const appInstance = options.app || (typeof app !== 'undefined' ? app : null);
+
+  const child = spawnFn('pkexec', [helperPath], { stdio: 'inherit' });
+  if (child && typeof child.on === 'function') {
+    child.on('close', (code) => {
+      if (code === 0) {
+        if (appInstance && typeof appInstance.relaunch === 'function' && typeof appInstance.exit === 'function') {
+          appInstance.relaunch();
+          appInstance.exit(0);
+        }
+      } else {
+        console.error(`Upgrade helper failed with exit code ${code}`);
+      }
+    });
+  }
+  return child;
+}
+
 export function buildTrayMenuTemplate(options = {}) {
   const locale = options.locale || detectLocale();
   const t = (key) => translate(locale, key);
@@ -867,7 +1090,10 @@ export function buildTrayMenuTemplate(options = {}) {
   const active = options.active ?? dshStatus.active;
   const statusText = active ? t('trayStatusRunning') : t('trayStatusOffline');
   const availableUpdate = options.availableUpdate ?? getAvailableUpdate();
-  const shellOpener = options.shell || shell;
+  const upgradeHelper = options.runUpgradeHelper || runUpgradeHelper;
+  const hasUpdate = availableUpdate && (availableUpdate.available ?? availableUpdate.hasUpdate);
+  const updateVersion = availableUpdate?.version || (availableUpdate?.tag ? String(availableUpdate.tag).replace(/^v/, '') : '');
+  const updateLabel = formatUpdateLabel(updateVersion);
 
   return [
     {
@@ -878,13 +1104,12 @@ export function buildTrayMenuTemplate(options = {}) {
       label: statusText,
       enabled: false
     },
-    ...(availableUpdate ? [
+    ...(hasUpdate ? [
       { type: 'separator' },
       {
-        label: `Update available: ${availableUpdate.tag}`,
+        label: updateLabel,
         click: async () => {
-          const url = availableUpdate.url || 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases';
-          if (shellOpener) await shellOpener.openExternal(url);
+          await upgradeHelper(options);
         }
       }
     ] : []),
@@ -960,15 +1185,18 @@ export function buildAppMenuTemplate(options = {}) {
   const locale = options.locale || detectLocale();
   const t = (key) => translate(locale, key);
   const availableUpdate = options.availableUpdate ?? getAvailableUpdate();
+  const upgradeHelper = options.runUpgradeHelper || runUpgradeHelper;
   const shellOpener = options.shell || shell;
+  const hasUpdate = availableUpdate && (availableUpdate.available ?? availableUpdate.hasUpdate);
+  const updateVersion = availableUpdate?.version || (availableUpdate?.tag ? String(availableUpdate.tag).replace(/^v/, '') : '');
+  const updateLabel = formatUpdateLabel(updateVersion);
 
   const helpSubmenu = [];
-  if (availableUpdate) {
+  if (hasUpdate) {
     helpSubmenu.push({
-      label: `Update available: ${availableUpdate.tag}`,
+      label: updateLabel,
       click: async () => {
-        const url = availableUpdate.url || 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases';
-        if (shellOpener) await shellOpener.openExternal(url);
+        await upgradeHelper(options);
       }
     });
     helpSubmenu.push({ type: 'separator' });
@@ -1059,12 +1287,11 @@ export function buildAppMenuTemplate(options = {}) {
       label: t('menuHelp'),
       submenu: helpSubmenu
     },
-    ...(availableUpdate ? [
+    ...(hasUpdate ? [
       {
-        label: `Update available: ${availableUpdate.tag}`,
+        label: updateLabel,
         click: async () => {
-          const url = availableUpdate.url || 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases';
-          if (shellOpener) await shellOpener.openExternal(url);
+          await upgradeHelper(options);
         }
       }
     ] : [])
@@ -1088,10 +1315,16 @@ if (app) {
     createTray();
 
     checkForUpdates({ currentVersion: VERSION }).then((result) => {
-      if (result?.hasUpdate) {
+      if (result?.available || result?.hasUpdate) {
         setAvailableUpdate(result);
         setupMenu();
         updateTrayMenu();
+        if (tray && typeof tray.displayBalloon === 'function') {
+          tray.displayBalloon({
+            title: 'DSH Desktop',
+            content: formatUpdateLabel(result.version || result.tag)
+          });
+        }
       }
     }).catch(() => {});
 

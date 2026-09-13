@@ -103,6 +103,29 @@ if [ "${1:-}" = "--daemon" ] || [ "${1:-}" = "--foreground" ]; then
     exec node --expose-internals "$DSH_ENTRY" --profile default --no-open
 fi
 
+# Normalize and forward arguments including --import-preset
+ELECTRON_ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --import-preset=*)
+            ELECTRON_ARGS+=("$1")
+            shift
+            ;;
+        --import-preset)
+            if [ $# -ge 2 ]; then
+                ELECTRON_ARGS+=("--import-preset=$2")
+                shift 2
+            else
+                shift
+            fi
+            ;;
+        *)
+            ELECTRON_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
 # 3. Start systemd user service dsh-desktop.service if not active, or fallback to spawning daemon
 SERVICE_NAME="dsh-desktop.service"
 DAEMON_STARTED_BY_SYSTEMD=0
@@ -271,7 +294,7 @@ if [ -d "$ELECTRON_APP_DIR" ]; then
 
     if [ -n "$ELECTRON_BIN" ]; then
         echo "Launching DSH Desktop in sandboxed Electron wrapper..."
-        exec "$ELECTRON_BIN" "$ELECTRON_APP_DIR" --ozone-platform-hint=auto --url="$TARGET_URL" --class="dsh-desktop" "$@"
+        exec "$ELECTRON_BIN" "$ELECTRON_APP_DIR" --ozone-platform-hint=auto --url="$TARGET_URL" --class="dsh-desktop" "${ELECTRON_ARGS[@]}"
     fi
 fi
 

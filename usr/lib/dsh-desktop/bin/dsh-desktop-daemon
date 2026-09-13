@@ -4,9 +4,44 @@ set -euo pipefail
 # Standard environment path
 export PATH="${HOME:-/root}/.dsh/.desktop-bin:/usr/bin:/bin:${HOME:-/root}/.local/bin:${PATH:-}"
 
+# ---- Circuit breaker check ------------------------------------------------
+DSH_NODE_BIN="$(command -v node || echo /usr/bin/node)"
+CIRCUIT_BREAKER_MOD="/usr/share/dsh-desktop/lib/plugin-manager/circuit-breaker.mjs"
+if [ ! -f "$CIRCUIT_BREAKER_MOD" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -f "$SCRIPT_DIR/../../../share/dsh-desktop/lib/plugin-manager/circuit-breaker.mjs" ]; then
+        CIRCUIT_BREAKER_MOD="$SCRIPT_DIR/../../../share/dsh-desktop/lib/plugin-manager/circuit-breaker.mjs"
+    elif [ -f "$SCRIPT_DIR/../../share/dsh-desktop/lib/plugin-manager/circuit-breaker.mjs" ]; then
+        CIRCUIT_BREAKER_MOD="$SCRIPT_DIR/../../share/dsh-desktop/lib/plugin-manager/circuit-breaker.mjs"
+    fi
+fi
+
+if [ -f "$CIRCUIT_BREAKER_MOD" ]; then
+    CB_EXIT=0
+    "$DSH_NODE_BIN" -e "import('$CIRCUIT_BREAKER_MOD').then(async m => {
+      const res = await m.recordDaemonBoot();
+      if (res.circuitOpen) {
+        process.exit(75);
+      }
+      process.exit(0);
+    }).catch(() => process.exit(0))" || CB_EXIT=$?
+
+    if [ "$CB_EXIT" -eq 75 ]; then
+        echo "dsh-desktop-daemon: circuit breaker open (3 boot attempts within 60s without ready)" >&2
+        exit 75
+    fi
+fi
+
 # ---- Bootstrap step -------------------------------------------------------
 DSH_LIB_DIR="/usr/share/dsh-desktop/lib"
-DSH_NODE_BIN="$(command -v node || echo /usr/bin/node)"
+if [ ! -d "$DSH_LIB_DIR" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -d "$SCRIPT_DIR/../../../share/dsh-desktop/lib" ]; then
+        DSH_LIB_DIR="$SCRIPT_DIR/../../../share/dsh-desktop/lib"
+    elif [ -d "$SCRIPT_DIR/../../share/dsh-desktop/lib" ]; then
+        DSH_LIB_DIR="$SCRIPT_DIR/../../share/dsh-desktop/lib"
+    fi
+fi
 
 "$DSH_NODE_BIN" "$DSH_LIB_DIR/plugin-manager/bootstrap-cli.mjs" || {
   echo "dsh-desktop-daemon: bootstrap failed" >&2
@@ -40,7 +75,11 @@ export NODE_PATH="${HOME:-/root}/.dsh/node_modules:${HOME:-/root}/.dsh/profiles/
 VERSION_MOD="/usr/share/dsh-desktop/lib/plugin-manager/dsh-version.mjs"
 if [ ! -f "$VERSION_MOD" ]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    VERSION_MOD="$SCRIPT_DIR/../../share/dsh-desktop/lib/plugin-manager/dsh-version.mjs"
+    if [ -f "$SCRIPT_DIR/../../../share/dsh-desktop/lib/plugin-manager/dsh-version.mjs" ]; then
+        VERSION_MOD="$SCRIPT_DIR/../../../share/dsh-desktop/lib/plugin-manager/dsh-version.mjs"
+    elif [ -f "$SCRIPT_DIR/../../share/dsh-desktop/lib/plugin-manager/dsh-version.mjs" ]; then
+        VERSION_MOD="$SCRIPT_DIR/../../share/dsh-desktop/lib/plugin-manager/dsh-version.mjs"
+    fi
 fi
 
 # Validate running DSH version against supported range before exec

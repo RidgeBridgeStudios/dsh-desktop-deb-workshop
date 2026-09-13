@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# DSH Desktop upgrade helper executed via pkexec
+# Updates apt cache specifically for dsh-desktop.list and upgrades dsh-desktop
+
+TMP_ERR=$(mktemp)
+trap 'rm -f "$TMP_ERR"' EXIT
+
+if ! apt-get update -o Dir::Etc::sourcelist=sources.list.d/dsh-desktop.list 2>"$TMP_ERR"; then
+    cat "$TMP_ERR" >&2
+    exit 1
+fi
+
+if ! apt-get install --only-upgrade -y dsh-desktop 2>"$TMP_ERR"; then
+    cat "$TMP_ERR" >&2
+    exit 1
+fi
+
+echo "DSH Desktop upgrade completed successfully."
+exit 0

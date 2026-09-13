@@ -6,7 +6,11 @@ function registerPreloadBridges(bridge, ipc, target = (typeof window !== 'undefi
     bridge.exposeInMainWorld('dshDesktop', {
       restartHarness: () => ipc?.invoke('harness:restart'),
       uninstallMarket: () => ipc?.invoke('market:uninstall'),
-      installMarket: () => ipc?.invoke('market:install')
+      installMarket: () => ipc?.invoke('market:install'),
+      getImportPresetPath: () => ipc?.invoke('preset:get-import-path'),
+      getImportPresetData: (presetPath) => ipc?.invoke('preset:get-import-data', presetPath),
+      showImportPresetMessage: (msg) => ipc?.invoke('preset:show-message', msg),
+      updateAvailable: () => ipc?.invoke('update:available')
     });
 
     bridge.exposeInMainWorld('dshRecovery', {

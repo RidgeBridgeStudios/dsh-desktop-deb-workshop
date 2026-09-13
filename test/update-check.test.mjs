@@ -1,216 +1,310 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { gzipSync } from 'node:zlib';
 
 import {
   checkForUpdates,
   formatUpdateLabel,
   getAvailableUpdate,
   setAvailableUpdate,
-  DEFAULT_LATEST_RELEASE_URL
+  clearUpdateCache,
+  parseDshVersionFromPackages,
+  compareDebianLt
 } from '../usr/share/dsh-desktop/app/update-check.mjs';
+
 import {
   VERSION,
   buildAppMenuTemplate,
-  buildTrayMenuTemplate
+  buildTrayMenuTemplate,
+  runUpgradeHelper,
+  registerIpcHandlers
 } from '../usr/share/dsh-desktop/app/main.js';
+
+function makePackagesContent(version, pkg = 'dsh-desktop') {
+  return [
+    'Package: ' + pkg,
+    'Version: ' + version,
+    'Architecture: amd64',
+    'Maintainer: RidgeBridgeStudios',
+    'Description: Sandboxed desktop workspace'
+  ].join('\n') + '\n\n';
+}
+
+function makeGzResponse(text, status = 200) {
+  const gz = gzipSync(Buffer.from(text, 'utf-8'));
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    arrayBuffer: async () => gz.buffer.slice(gz.byteOffset, gz.byteOffset + gz.byteLength),
+    text: async () => text
+  };
+}
 
 test('VERSION constant is exported from main.js', () => {
   assert.equal(typeof VERSION, 'string');
   assert.match(VERSION, /^\d+\.\d+\.\d+/);
 });
 
-test('formatUpdateLabel formats tag with v prefix', () => {
-  assert.equal(formatUpdateLabel('v1.2.0'), 'Update available: v1.2.0');
+test('formatUpdateLabel formats version with v prefix', () => {
   assert.equal(formatUpdateLabel('1.2.0'), 'Update available: v1.2.0');
+  assert.equal(formatUpdateLabel('v1.2.0'), 'Update available: v1.2.0');
 });
 
-test('checkForUpdates: newer release available', async () => {
-  const mockRelease = {
-    tag_name: 'v1.2.0',
-    html_url: 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases/tag/v1.2.0'
-  };
+test('compareDebianLt compares versions correctly', () => {
+  assert.equal(compareDebianLt('1.0.0', '1.1.0'), true);
+  assert.equal(compareDebianLt('1.1.0', '1.0.0'), false);
+  assert.equal(compareDebianLt('1.0.0', '1.0.0'), false);
+  assert.equal(compareDebianLt('1.0.0-1', '1.0.0-2'), true);
+});
 
-  const mockFetch = async (url, init) => {
-    assert.equal(url, DEFAULT_LATEST_RELEASE_URL);
-    assert.equal(init?.headers?.Accept, 'application/vnd.github+json');
-    return {
-      ok: true,
-      status: 200,
-      json: async () => mockRelease
-    };
-  };
+test('parseDshVersionFromPackages extracts dsh-desktop version', () => {
+  const content = makePackagesContent('1.5.0') + makePackagesContent('2.0.0', 'other-package');
+  const ver = parseDshVersionFromPackages(content);
+  assert.equal(ver, '1.5.0');
+});
+
+test('checkForUpdates: newer release available in mocked Packages.gz', async () => {
+  clearUpdateCache();
+  const mockFetch = async () => makeGzResponse(makePackagesContent('1.2.0'));
 
   const result = await checkForUpdates({
     fetch: mockFetch,
-    currentVersion: '1.0.0'
+    currentVersion: '1.0.0',
+    force: true
   });
 
-  assert.equal(result.hasUpdate, true);
-  assert.equal(result.tag, 'v1.2.0');
+  assert.equal(result.available, true);
   assert.equal(result.version, '1.2.0');
-  assert.equal(result.url, 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases/tag/v1.2.0');
 });
 
-test('checkForUpdates: same version', async () => {
-  const mockRelease = {
-    tag_name: 'v1.0.0',
-    html_url: 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases/tag/v1.0.0'
-  };
-
-  const mockFetch = async () => ({
-    ok: true,
-    status: 200,
-    json: async () => mockRelease
-  });
+test('checkForUpdates: same version in mocked Packages', async () => {
+  clearUpdateCache();
+  const mockFetch = async () => makeGzResponse(makePackagesContent('1.0.0'));
 
   const result = await checkForUpdates({
     fetch: mockFetch,
-    currentVersion: '1.0.0'
+    currentVersion: '1.0.0',
+    force: true
   });
 
-  assert.equal(result.hasUpdate, false);
-  assert.equal(result.tag, 'v1.0.0');
+  assert.equal(result.available, false);
   assert.equal(result.version, '1.0.0');
 });
 
-test('checkForUpdates: older release', async () => {
-  const mockRelease = {
-    tag_name: 'v0.9.0',
-    html_url: 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases/tag/v0.9.0'
-  };
-
-  const mockFetch = async () => ({
-    ok: true,
-    status: 200,
-    json: async () => mockRelease
-  });
+test('checkForUpdates: older release in mocked Packages', async () => {
+  clearUpdateCache();
+  const mockFetch = async () => makeGzResponse(makePackagesContent('0.9.0'));
 
   const result = await checkForUpdates({
     fetch: mockFetch,
-    currentVersion: '1.0.0'
+    currentVersion: '1.0.0',
+    force: true
   });
 
-  assert.equal(result.hasUpdate, false);
-  assert.equal(result.tag, 'v0.9.0');
+  assert.equal(result.available, false);
   assert.equal(result.version, '0.9.0');
 });
 
-test('checkForUpdates: handles tag without leading v', async () => {
-  const mockRelease = {
-    tag_name: '2.0.0',
-    html_url: 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases/tag/v2.0.0'
-  };
-
-  const mockFetch = async () => ({
-    ok: true,
-    status: 200,
-    json: async () => mockRelease
-  });
-
-  const result = await checkForUpdates({
-    fetch: mockFetch,
-    currentVersion: '1.0.0'
-  });
-
-  assert.equal(result.hasUpdate, true);
-  assert.equal(result.tag, 'v2.0.0');
-  assert.equal(result.version, '2.0.0');
-});
-
-test('checkForUpdates: network failure (thrown exception)', async () => {
+test('checkForUpdates: network failure (fetch throws)', async () => {
+  clearUpdateCache();
   const mockFetch = async () => {
-    throw new Error('getaddrinfo ENOTFOUND api.github.com');
+    throw new Error('getaddrinfo ENOTFOUND apt.ridgebridge.io');
   };
 
   const result = await checkForUpdates({
     fetch: mockFetch,
-    currentVersion: '1.0.0'
+    currentVersion: '1.0.0',
+    force: true
   });
 
-  assert.equal(result.hasUpdate, false);
+  assert.equal(result.available, false);
   assert.match(result.error, /ENOTFOUND/);
 });
 
 test('checkForUpdates: HTTP error response', async () => {
+  clearUpdateCache();
   const mockFetch = async () => ({
     ok: false,
-    status: 503,
-    json: async () => ({})
+    status: 404,
+    arrayBuffer: async () => Buffer.from(''),
+    text: async () => ''
   });
 
   const result = await checkForUpdates({
     fetch: mockFetch,
-    currentVersion: '1.0.0'
+    currentVersion: '1.0.0',
+    force: true
   });
 
-  assert.equal(result.hasUpdate, false);
-  assert.equal(result.error, 'HTTP 503');
+  assert.equal(result.available, false);
+  assert.equal(result.error, 'HTTP 404');
 });
 
-test('menu: shows update item when newer release exists, opens in system browser', async () => {
-  const openedUrls = [];
-  const mockShell = {
-    openExternal: async (url) => {
-      openedUrls.push(url);
-    }
+test('checkForUpdates: malformed Packages file (corrupt gzip)', async () => {
+  clearUpdateCache();
+  const mockFetch = async () => ({
+    ok: true,
+    status: 200,
+    arrayBuffer: async () => Buffer.from([0x1f, 0x8b, 0x00, 0xff]), // invalid gzip stream
+    text: async () => ''
+  });
+
+  const result = await checkForUpdates({
+    fetch: mockFetch,
+    currentVersion: '1.0.0',
+    force: true
+  });
+
+  assert.equal(result.available, false);
+  assert.match(result.error, /Malformed gzip/);
+});
+
+test('checkForUpdates: malformed Packages file (missing dsh-desktop entry)', async () => {
+  clearUpdateCache();
+  const mockFetch = async () => makeGzResponse(makePackagesContent('2.0.0', 'unrelated-pkg'));
+
+  const result = await checkForUpdates({
+    fetch: mockFetch,
+    currentVersion: '1.0.0',
+    force: true
+  });
+
+  assert.equal(result.available, false);
+  assert.match(result.error, /No dsh-desktop package version found/);
+});
+
+test('checkForUpdates: caches result for 6 hours', async () => {
+  clearUpdateCache();
+  let fetchCount = 0;
+  const mockFetch = async () => {
+    fetchCount++;
+    return makeGzResponse(makePackagesContent('1.5.0'));
   };
 
+  let simulatedTime = 1000000;
+  const nowFn = () => simulatedTime;
+
+  // First check - calls fetch
+  const res1 = await checkForUpdates({ fetch: mockFetch, currentVersion: '1.0.0', now: nowFn });
+  assert.equal(fetchCount, 1);
+  assert.equal(res1.available, true);
+
+  // Second check 1 hour later - hits cache
+  simulatedTime += 1 * 60 * 60 * 1000;
+  const res2 = await checkForUpdates({ fetch: mockFetch, currentVersion: '1.0.0', now: nowFn });
+  assert.equal(fetchCount, 1);
+  assert.equal(res2.available, true);
+
+  // Third check after 6.5 hours - cache expired, fetches again
+  simulatedTime += 5.5 * 60 * 60 * 1000;
+  const res3 = await checkForUpdates({ fetch: mockFetch, currentVersion: '1.0.0', now: nowFn });
+  assert.equal(fetchCount, 2);
+  assert.equal(res3.available, true);
+});
+
+test('menu: shows update item when available and triggers pkexec upgrade helper', async () => {
   const updateInfo = {
-    tag: 'v1.5.0',
-    url: 'https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop/releases/tag/v1.5.0'
+    available: true,
+    version: '1.5.0'
   };
 
-  // App menu when update is available
+  let helperRan = false;
+  const mockUpgradeHelper = async () => {
+    helperRan = true;
+  };
+
   const appMenuWithUpdate = buildAppMenuTemplate({
     availableUpdate: updateInfo,
-    shell: mockShell
+    runUpgradeHelper: mockUpgradeHelper
   });
 
-  // Check top-level update menu item
-  const topLevelUpdateItem = appMenuWithUpdate.find(
-    (item) => item.label === 'Update available: v1.5.0'
-  );
-  assert.ok(topLevelUpdateItem, 'Top-level app menu should contain update item');
-  await topLevelUpdateItem.click();
-  assert.equal(openedUrls[0], updateInfo.url);
+  // Top-level update menu item
+  const topItem = appMenuWithUpdate.find((item) => item.label === 'Update available: v1.5.0');
+  assert.ok(topItem, 'Top-level app menu should contain update item');
+  await topItem.click();
+  assert.equal(helperRan, true);
 
-  // Check Help submenu update item
-  const helpMenu = appMenuWithUpdate.find(
-    (item) => item.label === 'Help' || item.label === '帮助'
-  );
-  assert.ok(helpMenu, 'Help menu should exist');
-  const helpUpdateItem = helpMenu.submenu.find(
-    (item) => item.label === 'Update available: v1.5.0'
-  );
-  assert.ok(helpUpdateItem, 'Help submenu should contain update item');
-  await helpUpdateItem.click();
-  assert.equal(openedUrls[1], updateInfo.url);
+  // Help menu submenu item
+  helperRan = false;
+  const helpMenu = appMenuWithUpdate.find((item) => item.label === 'Help' || item.label === '帮助');
+  assert.ok(helpMenu);
+  const helpItem = helpMenu.submenu.find((item) => item.label === 'Update available: v1.5.0');
+  assert.ok(helpItem);
+  await helpItem.click();
+  assert.equal(helperRan, true);
 
-  // Tray menu when update is available
+  // Tray menu update item
+  helperRan = false;
   const trayMenuWithUpdate = buildTrayMenuTemplate({
     availableUpdate: updateInfo,
-    shell: mockShell
+    runUpgradeHelper: mockUpgradeHelper
   });
-  const trayUpdateItem = trayMenuWithUpdate.find(
-    (item) => item.label === 'Update available: v1.5.0'
-  );
-  assert.ok(trayUpdateItem, 'Tray menu should contain update item');
-  await trayUpdateItem.click();
-  assert.equal(openedUrls[2], updateInfo.url);
+  const trayItem = trayMenuWithUpdate.find((item) => item.label === 'Update available: v1.5.0');
+  assert.ok(trayItem, 'Tray menu should contain update item');
+  await trayItem.click();
+  assert.equal(helperRan, true);
 
   // When no update is available
   const appMenuNoUpdate = buildAppMenuTemplate({
-    availableUpdate: null
+    availableUpdate: { available: false, version: '1.0.0' }
   });
-  assert.equal(
-    appMenuNoUpdate.some((item) => item.label?.startsWith('Update available:')),
-    false
-  );
-  const helpMenuNoUpdate = appMenuNoUpdate.find(
-    (item) => item.label === 'Help' || item.label === '帮助'
-  );
-  assert.equal(
-    helpMenuNoUpdate.submenu.some((item) => item.label?.startsWith('Update available:')),
-    false
-  );
+  assert.equal(appMenuNoUpdate.some((item) => item.label?.startsWith('Update available:')), false);
+});
+
+test('runUpgradeHelper spawns pkexec and relaunches on success', () => {
+  let spawnedCmd = null;
+  let spawnedArgs = null;
+  let relaunched = false;
+  let exitedCode = null;
+
+  const mockApp = {
+    relaunch: () => { relaunched = true; },
+    exit: (code) => { exitedCode = code; }
+  };
+
+  const mockChild = {
+    callbacks: {},
+    on(event, cb) {
+      this.callbacks[event] = cb;
+    }
+  };
+
+  const mockSpawn = (cmd, args) => {
+    spawnedCmd = cmd;
+    spawnedArgs = args;
+    return mockChild;
+  };
+
+  runUpgradeHelper({
+    helperPath: '/usr/lib/dsh-desktop/bin/dsh-desktop-upgrade-helper',
+    spawn: mockSpawn,
+    app: mockApp
+  });
+
+  assert.equal(spawnedCmd, 'pkexec');
+  assert.deepEqual(spawnedArgs, ['/usr/lib/dsh-desktop/bin/dsh-desktop-upgrade-helper']);
+
+  // Simulate successful exit
+  mockChild.callbacks['close'](0);
+  assert.equal(relaunched, true);
+  assert.equal(exitedCode, 0);
+});
+
+test('preload IPC update:available handler returns update status', async () => {
+  const handlers = {};
+  const mockIpc = {
+    handle: (channel, handler) => {
+      handlers[channel] = handler;
+    }
+  };
+
+  registerIpcHandlers(mockIpc, {
+    getAvailableUpdate: () => ({ available: true, version: '1.3.0' })
+  });
+
+  assert.ok(handlers['update:available'], 'update:available handler registered');
+  const mockEvent = { senderFrame: { url: 'http://127.0.0.1:8080/loading.html' } };
+  const res = await handlers['update:available'](mockEvent);
+  assert.equal(res.available, true);
+  assert.equal(res.version, '1.3.0');
 });
