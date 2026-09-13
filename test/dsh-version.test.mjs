@@ -171,3 +171,53 @@ test('installMarketShared with resolveRunningDshVersion returning null rejects w
   assert.equal(runPluginCalled, false)
 })
 
+test('runDshPlugin with nodeExecutablePath=/usr/bin/electron sets ELECTRON_RUN_AS_NODE=1', async () => {
+  const { runDshPlugin } = await import('../usr/share/dsh-desktop/lib/plugin-manager/market-backend.mjs')
+  let capturedEnv
+  const fakeSpawn = (execPath, args, opts) => {
+    capturedEnv = opts.env
+    return {
+      stdout: { on: () => {} },
+      stderr: { on: () => {} },
+      once: (event, cb) => {
+        if (event === 'close') setTimeout(() => cb(0), 1)
+      },
+      kill: () => {}
+    }
+  }
+
+  await runDshPlugin({
+    dshEntryPath: '/entry.js',
+    nodeExecutablePath: '/usr/bin/electron',
+    args: [],
+    spawnProcess: fakeSpawn
+  })
+  assert.equal(capturedEnv.ELECTRON_RUN_AS_NODE, '1')
+})
+
+test('runDshPlugin with pre-existing ELECTRON_RUN_AS_NODE="" still sets it to 1', async () => {
+  const { runDshPlugin } = await import('../usr/share/dsh-desktop/lib/plugin-manager/market-backend.mjs')
+  let capturedEnv
+  const fakeSpawn = (execPath, args, opts) => {
+    capturedEnv = opts.env
+    return {
+      stdout: { on: () => {} },
+      stderr: { on: () => {} },
+      once: (event, cb) => {
+        if (event === 'close') setTimeout(() => cb(0), 1)
+      },
+      kill: () => {}
+    }
+  }
+
+  await runDshPlugin({
+    dshEntryPath: '/entry.js',
+    nodeExecutablePath: '/usr/bin/electron',
+    environment: { ELECTRON_RUN_AS_NODE: '' },
+    args: [],
+    spawnProcess: fakeSpawn
+  })
+  assert.equal(capturedEnv.ELECTRON_RUN_AS_NODE, '1')
+})
+
+

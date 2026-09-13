@@ -36,6 +36,15 @@ test('generationInstallEnvironment preserves existing ELECTRON_RUN_AS_NODE', () 
   assert.equal(env.ELECTRON_RUN_AS_NODE, 'custom')
 })
 
+test('isElectronBinary correctly identifies electron binaries', async () => {
+  const { isElectronBinary } = await import('../usr/share/dsh-desktop/lib/plugin-manager/installer.mjs')
+  assert.equal(isElectronBinary('/usr/bin/electron'), true)
+  assert.equal(isElectronBinary('/opt/Electron/electron'), true)
+  assert.equal(isElectronBinary('/usr/bin/node'), false)
+  assert.equal(isElectronBinary(undefined), false)
+})
+
+
 async function scratch(t) {
   const home = await mkdtemp(join(tmpdir(), 'dsh-installer-'))
   t.after(() => rm(home, { recursive: true, force: true }))

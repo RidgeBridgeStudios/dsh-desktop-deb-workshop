@@ -20,8 +20,13 @@ function isHostSingleton(name) {
   return HOST_SINGLETON_PATTERNS.some((pattern) => pattern.test(name))
 }
 
+export function isElectronBinary(executablePath) {
+  return typeof executablePath === 'string' &&
+    basename(executablePath).toLowerCase().includes('electron')
+}
+
 export function generationInstallEnvironment(environment = process.env, executablePath) {
-  const isElectron = typeof executablePath === 'string' && basename(executablePath).toLowerCase().includes('electron')
+  const isElectron = isElectronBinary(executablePath)
   return {
     ...environment,
     ...(isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),

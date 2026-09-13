@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { LIVE_PROFILE, profileDirectory } from './paths.mjs'
 import { MARKET_PACKAGE } from './market-constants.mjs'
-import { installGeneration } from './installer.mjs'
+import { installGeneration, isElectronBinary } from './installer.mjs'
 import { disableGeneration, listGenerations, readDesired, writeDesired } from './registry.mjs'
 import { publishInstalledGeneration } from './projection.mjs'
 import { assertSupportedDsh, resolveRunningDshVersion } from './dsh-version.mjs'
@@ -87,8 +87,8 @@ export function runDshPlugin(options) {
     spawnProcess = spawn
   } = options
 
-  const env = nodeExecutablePath === process.execPath
-    ? { ELECTRON_RUN_AS_NODE: '1', ...environment }
+  const env = isElectronBinary(nodeExecutablePath)
+    ? { ...environment, ELECTRON_RUN_AS_NODE: '1' }
     : environment
 
   return new Promise((resolve) => {
