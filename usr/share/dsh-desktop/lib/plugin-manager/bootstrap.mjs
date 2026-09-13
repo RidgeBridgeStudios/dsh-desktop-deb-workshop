@@ -1,8 +1,10 @@
-import { mkdir, access, writeFile, rename, rm } from 'node:fs/promises'
+import { mkdir, access, readFile, writeFile, rename, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { dshHome as defaultDshHome, profilesRoot, profileDirectory } from './paths.mjs'
+import { installMarketShared, readMarketState } from './market-backend.mjs'
+import { MARKET_PACKAGE, RECOMMENDED_MARKET_VERSION } from './market-constants.mjs'
 
 const MANIFEST_BODY = `${JSON.stringify({
   name: 'dsh-profile-default',
@@ -17,6 +19,8 @@ const MANIFEST_BODY = `${JSON.stringify({
     }
   }
 }, undefined, 2)}\n`
+
+const WORKSPACE_BODY = 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n'
 
 export async function ensureDataDirs(options = {}) {
   const dshRoot = options.dshRoot ?? defaultDshHome()
@@ -50,8 +54,46 @@ export async function ensureDefaultProfile(options = {}) {
     } finally {
       await rm(tmp, { force: true }).catch(() => undefined)
     }
+    const workspacePath = join(profileDir, 'pnpm-workspace.yaml')
+    try {
+      await access(workspacePath)
+    } catch {
+      await writeFile(workspacePath, WORKSPACE_BODY, { mode: 0o644 }).catch(() => undefined)
+    }
     return { ok: true }
   } catch (error) {
     return { ok: false, detail: error.message }
+  }
+}
+
+export async function ensureMarketSeeded(options = {}) {
+  const dshRoot = options.dshRoot ?? defaultDshHome()
+  const profile = options.profile ?? 'default'
+  const readState = options.readMarketState ?? readMarketState
+  const installMarket = options.installMarketShared ?? installMarketShared
+  try {
+    const state = await readState(dshRoot, profile)
+    if (state?.installedVersion !== undefined || state?.dependency !== undefined) {
+      return { ok: true, alreadySeeded: true }
+    }
+    const profileDir = profileDirectory(dshRoot, profile)
+    const workspacePath = join(profileDir, 'pnpm-workspace.yaml')
+    try {
+      const existing = await readFile(workspacePath, 'utf8')
+      if (!existing.includes('- .')) {
+        await writeFile(workspacePath, WORKSPACE_BODY, { mode: 0o644 })
+      }
+    } catch {
+      await writeFile(workspacePath, WORKSPACE_BODY, { mode: 0o644 }).catch(() => undefined)
+    }
+    await installMarket({
+      ...options,
+      dshHome: options.dshHome ?? dshRoot,
+      profile,
+      recommendedVersion: options.recommendedVersion ?? RECOMMENDED_MARKET_VERSION
+    })
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, detail: error?.message ?? String(error) }
   }
 }

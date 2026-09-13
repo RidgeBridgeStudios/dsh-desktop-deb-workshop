@@ -43,6 +43,17 @@ case "$1" in
 EOF
                 chown "$USER_UID:$USER_GID" "$PACKAGE_JSON"
             fi
+            WORKSPACE_YAML="$DEFAULT_PROFILE_DIR/pnpm-workspace.yaml"
+            if [ ! -f "$WORKSPACE_YAML" ]; then
+                cat << 'EOF' > "$WORKSPACE_YAML"
+packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
+EOF
+                chown "$USER_UID:$USER_GID" "$WORKSPACE_YAML"
+            fi
             chown "$USER_UID:$USER_GID" "$USER_HOME/.dsh" 2>/dev/null || true
             chown -R "$USER_UID:$USER_GID" "$DEFAULT_PROFILE_DIR"
             chown -R "$USER_UID:$USER_GID" "$USER_HOME/.local/share/dsh-desktop"
@@ -57,6 +68,10 @@ EOF
             if [ -d "$USER_RUNDIR" ] && command -v systemctl >/dev/null 2>&1; then
                 runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user daemon-reload 2>/dev/null || true
                 runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="$USER_RUNDIR" systemctl --user enable --now dsh-desktop.service 2>/dev/null || true
+                # Best-effort early market seed; idempotent across runs
+                runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="$USER_RUNDIR" \
+                  node /usr/share/dsh-desktop/lib/plugin-manager/bootstrap-cli.mjs \
+                  >/dev/null 2>&1 || true
             fi
 
             # Clean up stale user desktop entry if it pointed to dsh-native

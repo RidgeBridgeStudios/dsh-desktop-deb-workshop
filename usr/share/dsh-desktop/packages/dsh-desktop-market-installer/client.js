@@ -132,9 +132,12 @@ window.__ModuleLoader__.load({
       document.head.appendChild(style)
     }
 
-    function marketAlreadyComposed() {
-      const entries = globalThis.__DSH_BOOT__?.entries
-      return Array.isArray(entries) && entries.some((entry) => entry?.id === 'dshmarket')
+    async function marketAlreadyComposed() {
+      try {
+        const res = await fetch(STATUS_PATH, { credentials: 'same-origin', cache: 'no-store' })
+        const s = await res.json()
+        return s?.phase === 'installed'
+      } catch { return false }
     }
 
     async function readStatus() {
@@ -664,14 +667,14 @@ window.__ModuleLoader__.load({
     }
 
     const inject = ['slots', 'locale']
-    function apply(ctx) {
+    async function apply(ctx) {
       installStyles()
       ctx.effect(
         () => ctx.locale.register(NS, { zh, en }),
         'dsh-desktop-market-installer: copy dictionaries'
       )
       const t = ctx.locale.bind(NS)
-      if (marketAlreadyComposed()) {
+      if (await marketAlreadyComposed()) {
         ctx.slots.inject('settings.plugins.tab', () =>
           ctx.slots.register(
             {
