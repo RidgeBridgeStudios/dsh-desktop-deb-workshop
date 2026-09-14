@@ -71,29 +71,43 @@ EOF
     - id: dsh-nvidia-nim-fix
       name: /opt/dsh-desktop/plugins/dsh-nvidia-nim-fix/index.js"
 
-                for pfile in "$dsh_dir/cordis.patch.yml" "$profile_dir/cordis.patch.yml"; do
-                    if [ ! -f "$pfile" ] || [ ! -s "$pfile" ]; then
-                        printf "%s\n" "$patch_block" > "$pfile"
-                        chown "$target_uid:$target_gid" "$pfile" 2>/dev/null || true
-                    else
-                        # Validate that existing file begins with a valid YAML list indicator
-                        if ! head -c 1 "$pfile" | grep -qE '^(-|\[|\s*$)'; then
-                            echo "dsh-desktop: refusing to modify non-list $pfile; backed up." >&2
-                            cp "$pfile" "$pfile.bak.$(date +%s)"
-                            continue
-                        fi
+                # Clean up duplicate from profile_dir if present from previous postinst
+                local pfile_prof="$profile_dir/cordis.patch.yml"
+                if [ -f "$pfile_prof" ] && grep -q "dsh-nvidia-nim-fix" "$pfile_prof" 2>/dev/null; then
+                    cp "$pfile_prof" "$pfile_prof.bak.$(date +%s)"
+                    node -e "
+                      const fs = require('fs');
+                      try {
+                        let txt = fs.readFileSync('$pfile_prof', 'utf8');
+                        txt = txt.replace(/- insert:\\s*\\n\\s*- id: dsh-nvidia-nim-fix\\s*\\n\\s*name: [^\\n]*/g, '');
+                        txt = txt.replace(/- id: dsh-nvidia-nim-fix\\s*\\n\\s*name: [^\\n]*/g, '');
+                        if (!txt.trim() || txt.trim() === '- insert:' || txt.trim() === '[]') txt = '[]\\n';
+                        fs.writeFileSync('$pfile_prof', txt, 'utf8');
+                      } catch {}
+                    " 2>/dev/null || true
+                    chown "$target_uid:$target_gid" "$pfile_prof" 2>/dev/null || true
+                fi
 
-                        if ! grep -q "dsh-nvidia-nim-fix" "$pfile" 2>/dev/null; then
-                            # Backup before mutating existing patch file
-                            cp "$pfile" "$pfile.bak.$(date +%s)"
-                            if grep -q '^[[:space:]]*\[\][[:space:]]*$' "$pfile" 2>/dev/null; then
-                                sed -i 's/^[[:space:]]*\[\][[:space:]]*$//' "$pfile"
-                            fi
-                            printf "\n%s\n" "$patch_block" >> "$pfile"
-                            chown "$target_uid:$target_gid" "$pfile" 2>/dev/null || true
+                # Apply only to the global home patch file ($dsh_dir/cordis.patch.yml)
+                local pfile="$dsh_dir/cordis.patch.yml"
+                if [ ! -f "$pfile" ] || [ ! -s "$pfile" ]; then
+                    printf "%s\n" "$patch_block" > "$pfile"
+                    chown "$target_uid:$target_gid" "$pfile" 2>/dev/null || true
+                else
+                    # Validate that existing file begins with a valid YAML list indicator
+                    if ! head -c 1 "$pfile" | grep -qE '^(-|\[|\s*$)'; then
+                        echo "dsh-desktop: refusing to modify non-list $pfile; backed up." >&2
+                        cp "$pfile" "$pfile.bak.$(date +%s)"
+                    elif ! grep -q "dsh-nvidia-nim-fix" "$pfile" 2>/dev/null; then
+                        # Backup before mutating existing patch file
+                        cp "$pfile" "$pfile.bak.$(date +%s)"
+                        if grep -q '^[[:space:]]*\[\][[:space:]]*$' "$pfile" 2>/dev/null; then
+                            sed -i 's/^[[:space:]]*\[\][[:space:]]*$//' "$pfile"
                         fi
+                        printf "\n%s\n" "$patch_block" >> "$pfile"
+                        chown "$target_uid:$target_gid" "$pfile" 2>/dev/null || true
                     fi
-                done
+                fi
                 chown "$target_uid:$target_gid" "$dsh_dir" "$profile_dir" 2>/dev/null || true
             }
 
@@ -102,6 +116,7 @@ EOF
             chown "$USER_UID:$USER_GID" "$USER_HOME/.dsh" 2>/dev/null || true
             chown -R "$USER_UID:$USER_GID" "$DEFAULT_PROFILE_DIR"
             chown -R "$USER_UID:$USER_GID" "$USER_HOME/.local/share/dsh-desktop"
+            rm -f "$USER_HOME/.local/share/dsh-desktop/boot-attempts.json" 2>/dev/null || true
 
             # 3. Enable user lingering for the invoking user (opt-in only: dsh-desktop is a desktop app, not a background daemon)
             if [ -f /etc/dsh-desktop/linger-enabled ] && command -v loginctl >/dev/null 2>&1; then
