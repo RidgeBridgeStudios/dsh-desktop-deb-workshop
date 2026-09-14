@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About DSH Desktop</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      user-select: none;
+      overflow-x: hidden;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 2rem 2rem 1.75rem;
+      max-width: 460px;
+      width: 100%;
+    }
+    .app-logo {
+      width: 72px;
+      height: 72px;
+      margin-bottom: 1rem;
+      filter: drop-shadow(0 4px 16px rgba(56, 189, 248, 0.4));
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #ffffff 0%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .version {
+      font-size: 0.8125rem;
+      color: #38bdf8;
+      margin-top: 0.25rem;
+      font-weight: 500;
+    }
+    .tagline {
+      font-size: 0.875rem;
+      color: #94a3b8;
+      margin-top: 0.5rem;
+    }
+    .publisher-logo {
+      width: 96px;
+      height: 96px;
+      margin: 1.25rem 0 0.5rem;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+    .publisher-name {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+    .credits {
+      width: 100%;
+      margin-top: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+    }
+    .credit-section {
+      background: rgba(30, 41, 59, 0.55);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      text-align: left;
+    }
+    .credit-label {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #38bdf8;
+      margin-bottom: 0.4rem;
+    }
+    .credit-value {
+      font-size: 0.875rem;
+      color: #e2e8f0;
+      line-height: 1.5;
+    }
+    .credit-value .muted {
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <img class="app-logo" src="../logo.svg" alt="DSH Logo" onerror="this.src='../../icons/hicolor/128x128/apps/dsh-desktop.png'">
+    <h1>DSH Desktop</h1>
+    <div class="version" id="version"></div>
+    <div class="tagline" id="tagline">Sandboxed desktop workspace for the DeepSeek Harness</div>
+    <img class="publisher-logo" src="ridgebridge-studios.png" alt="RidgeBridge Studios">
+    <div class="publisher-name">RidgeBridge Studios</div>
+    <div class="credits">
+      <div class="credit-section">
+        <div class="credit-label" id="label-developer">Lead Developer</div>
+        <div class="credit-value">Gabriel Foss<br><span class="muted">emanuelgabrielfoss@gmail.com</span></div>
+      </div>
+      <div class="credit-section">
+        <div class="credit-label" id="label-publisher">Publisher</div>
+        <div class="credit-value">RidgeBridge Studios</div>
+      </div>
+      <div class="credit-section">
+        <div class="credit-label" id="label-built">Built with</div>
+        <div class="credit-value">Electron &middot; Node.js<br><span class="muted">DeepSeek Harness (@deepseek-ai/dsh)</span></div>
+      </div>
+      <div class="credit-section">
+        <div class="credit-label" id="label-license">License</div>
+        <div class="credit-value">MIT<br><span class="muted">&copy; 2026 RidgeBridge Studios</span></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Strategy: Read window.__DSH_LOCALE__ / window.__DSH_VERSION__ injected from Electron main process.
+    const DICT = {
+      en: {
+        tagline: 'Sandboxed desktop workspace for the DeepSeek Harness',
+        leadDeveloper: 'Lead Developer',
+        publisher: 'Publisher',
+        builtWith: 'Built with',
+        license: 'License'
+      },
+      zh: {
+        tagline: 'DeepSeek Harness 沙箱桌面工作区',
+        leadDeveloper: '首席开发',
+        publisher: '发行方',
+        builtWith: '构建技术',
+        license: '许可证'
+      }
+    };
+
+    function applyLocale(locale) {
+      const loc = (locale || window.__DSH_LOCALE__ || 'en').startsWith('zh') ? 'zh' : 'en';
+      const strings = DICT[loc] || DICT.en;
+      const taglineEl = document.getElementById('tagline');
+      if (taglineEl) taglineEl.textContent = strings.tagline;
+      const labelMap = {
+        'label-developer': strings.leadDeveloper,
+        'label-publisher': strings.publisher,
+        'label-built': strings.builtWith,
+        'label-license': strings.license
+      };
+      for (const [id, text] of Object.entries(labelMap)) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+      }
+    }
+    window.applyLocale = applyLocale;
+    window.applyVersion = function(version) {
+      if (!version) return;
+      const versionEl = document.getElementById('version');
+      if (versionEl) versionEl.textContent = String(version).startsWith('v') ? version : `v${version}`;
+    };
+    if (typeof window !== 'undefined' && window.__DSH_LOCALE__) {
+      applyLocale(window.__DSH_LOCALE__);
+    }
+    if (typeof window !== 'undefined' && window.__DSH_VERSION__) {
+      window.applyVersion(window.__DSH_VERSION__);
+    }
+  </script>
+</body>
+</html>

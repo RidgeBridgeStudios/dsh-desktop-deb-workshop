@@ -839,6 +839,46 @@ export function showProfilePicker(options = {}) {
   });
 }
 
+let aboutWindow = null;
+
+export function showAboutWindow() {
+  if (!BrowserWindow) return;
+  if (aboutWindow && !aboutWindow.isDestroyed()) {
+    aboutWindow.focus();
+    return;
+  }
+  const locale = detectLocale();
+  aboutWindow = new BrowserWindow({
+    width: 460,
+    height: 760,
+    resizable: false,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    title: 'About DSH Desktop',
+    backgroundColor: '#0f172a',
+    autoHideMenuBar: true,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.cjs')
+    }
+  });
+
+  aboutWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+  aboutWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  aboutWindow.loadFile(path.join(__dirname, 'about.html'));
+  aboutWindow.webContents.once('did-finish-load', () => {
+    aboutWindow?.webContents.executeJavaScript(
+      `window.__DSH_LOCALE__ = ${JSON.stringify(locale)}; window.__DSH_VERSION__ = ${JSON.stringify(VERSION)}; if (typeof window.applyLocale === 'function') window.applyLocale(${JSON.stringify(locale)}); if (typeof window.applyVersion === 'function') window.applyVersion(${JSON.stringify(VERSION)});`
+    ).catch(() => {});
+  });
+  aboutWindow.on('closed', () => {
+    aboutWindow = null;
+  });
+}
+
 export async function switchProfile(profile, supervisor = {}) {
   const home = supervisor.dshHome || defaultDshHome();
   const withStoppedFn = supervisor.withDaemonStopped || withDaemonStopped;
@@ -1562,6 +1602,11 @@ export function buildAppMenuTemplate(options = {}) {
       click: async () => {
         if (shellOpener) await shellOpener.openExternal('https://github.com/RidgeBridgeStudios/dsh-desktop-deb-workshop');
       }
+    },
+    { type: 'separator' },
+    {
+      label: t('menuAbout'),
+      click: () => showAboutWindow()
     }
   );
 

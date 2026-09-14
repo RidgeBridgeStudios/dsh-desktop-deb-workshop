@@ -106,6 +106,24 @@
       font-size: 0.8125rem;
       color: #fca5a5;
     }
+    .publisher-credit {
+      position: fixed;
+      bottom: 16px;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+    .publisher-credit img {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      opacity: 0.85;
+    }
   </style>
 </head>
 <body>
@@ -124,6 +142,10 @@
       <span id="update-banner-text">Update available</span>
     </div>
     <div id="error-box" class="error-box"></div>
+  </div>
+  <div class="publisher-credit">
+    <img src="ridgebridge-studios.png" alt="RidgeBridge Studios" title="RidgeBridge Studios">
+    <span>&copy; 2026 RidgeBridge Studios</span>
   </div>
   <script>
     // Strategy: Read window.__DSH_LOCALE__ injected from Electron main process via executeJavaScript before/after load.
