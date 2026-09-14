@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="usr/share/dsh-desktop/logo.svg" alt="DSH Desktop Logo" width="200">
+</p>
+
 # DSH Desktop (`dsh-desktop`)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

@@ -1,3 +1,11 @@
+dsh-desktop (1.1.2) stable; urgency=medium
+
+  * Update project logo with new white whale monitor silhouette and Ubuntu badge.
+  * Regenerate 128x128 and 24x24 application and tray icons.
+  * Update README.md with centered project logo banner.
+
+ -- RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>  Mon, 14 Sep 2026 12:56:00 +0200
+
 dsh-desktop (1.1.1) stable; urgency=medium
 
   * Add @dsh-desktop/dsh-nvidia-nim-fix plugin to resolve NVIDIA NIM DeepSeek-v4 streaming hang.
