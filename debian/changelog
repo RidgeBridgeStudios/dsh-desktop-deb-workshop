@@ -1,3 +1,11 @@
+dsh-desktop (1.1.3) stable; urgency=medium
+
+  * Fix duplicate dsh-nvidia-nim-fix patch registration across home and profile layers.
+  * Auto-clean duplicate entries from profile cordis.patch.yml during postinst.
+  * Reset tripped circuit breaker state during postinst.
+
+ -- RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>  Mon, 14 Sep 2026 13:23:00 +0200
+
 dsh-desktop (1.1.2) stable; urgency=medium
 
   * Update project logo with new white whale monitor silhouette and Ubuntu badge.
