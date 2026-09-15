@@ -9,7 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_NAME="dsh-desktop"
-PACKAGE_VERSION="1.1.3"
+PACKAGE_VERSION="1.1.4"
 PACKAGE_ARCH="$(dpkg-architecture -qDEB_HOST_ARCH)"
 PACKAGE_FULLNAME="${PACKAGE_NAME}_${PACKAGE_VERSION}_${PACKAGE_ARCH}"
 DEB_FILE="${SCRIPT_DIR}/${PACKAGE_FULLNAME}.deb"

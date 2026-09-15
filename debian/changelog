@@ -1,3 +1,13 @@
+dsh-desktop (1.1.4) stable; urgency=medium
+
+  * Add About dialog (Help > About DSH Desktop) with lead developer, publisher,
+    built-with, and MIT license credits plus RidgeBridge Studios logo.
+  * Add publisher credit footer to the harness loading splash shown on startup
+    and every Harness restart.
+  * Localized About menu entry for English and Chinese.
+
+ -- RidgeBridgeStudios <RidgeBridgeStudios@users.noreply.github.com>  Tue, 15 Sep 2026 19:17:00 +0200
+
 dsh-desktop (1.1.3) stable; urgency=medium
 
   * Fix duplicate dsh-nvidia-nim-fix patch registration across home and profile layers.
